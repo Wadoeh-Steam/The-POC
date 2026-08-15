@@ -1,0 +1,72 @@
+name: EmotionPOC
+options:
+  bundleIdPrefix: com.radityaaydin
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"
+targets:
+  EmotionPOC:
+    type: application
+    platform: iOS
+    sources:
+      - path: EmotionPOC
+        excludes:
+          - "Services/Cli/**"
+    info:
+      path: EmotionPOC/Info.plist
+      properties:
+        CFBundleDisplayName: Emotion POC
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.radityaaydin.EmotionPOC
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_PREVIEWS: YES
+        DEVELOPMENT_TEAM: "9ZFCALDWL4"
+
+  BenchmarkCLI:
+    type: tool
+    platform: macOS
+    sources:
+      - path: EmotionPOC/Models
+      - path: EmotionPOC/Data
+      - path: EmotionPOC/Services/PromptBuilder.swift
+      - path: EmotionPOC/Services/EnglishPromptBuilder.swift
+      - path: EmotionPOC/Services/BenchmarkService.swift
+      - path: EmotionPOC/Services/ServerGemini.swift
+      - path: EmotionPOC/Services/ServerOpenRouter.swift
+      - path: EmotionPOC/Services/OnDeviceTranslator.swift
+      - path: EmotionPOC/Services/OnDeviceTranslationPipeline.swift
+      - path: EmotionPOC/Services/Cli/CLIEntry.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.radityaaydin.BenchmarkCLI
+        ENABLE_HARDENED_RUNTIME: NO
+
+schemes:
+  EmotionPOC:
+    build:
+      targets:
+        EmotionPOC: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  BenchmarkCLI:
+    build:
+      targets:
+        BenchmarkCLI: all
+    run:
+      config: Debug

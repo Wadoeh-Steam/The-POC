@@ -1,0 +1,31 @@
+project_id = "emotionpoc"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = []
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.external.apple]
+enabled = false
+# Sign in with Apple — client_id/secret set via `supabase secrets set` once
+# confirmed (ARCHITECTURE.md §7 open item: auth provider not yet confirmed).
+
+[edge_runtime]
+enabled = true

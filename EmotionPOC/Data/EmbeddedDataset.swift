@@ -1,0 +1,259 @@
+import Foundation
+
+enum EmbeddedDataset {
+    static let json = """
+    {
+      "family": {
+        "id": "fam_001",
+        "name": "Anderson Family",
+        "timezone": "Asia/Jakarta"
+      },
+      "parent": {
+        "id": "usr_parent_001",
+        "role": "parent",
+        "name": "Daniel Anderson",
+        "age": 45,
+        "email": "daniel@example.com"
+      },
+      "child": {
+        "id": "usr_child_001",
+        "role": "child",
+        "name": "Maya Anderson",
+        "age": 16,
+        "relationship": "daughter",
+        "healthkit_enabled": true
+      },
+      "emotion_logs": [
+        {
+          "id": "emotion_001",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-05T07:42:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "dailyMood",
+            "valence": 0.65,
+            "labels": [
+              "calm",
+              "hopeful"
+            ],
+            "associations": [
+              "family"
+            ]
+          },
+          "journal": null
+        },
+        {
+          "id": "emotion_002",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-05T16:35:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "momentaryEmotion",
+            "valence": -0.45,
+            "labels": [
+              "frustrated",
+              "annoyed"
+            ],
+            "associations": [
+              "education"
+            ]
+          },
+          "journal": "I hate group projects."
+        },
+        {
+          "id": "emotion_003",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-06T21:10:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "momentaryEmotion",
+            "valence": -0.7,
+            "labels": [
+              "lonely",
+              "sad"
+            ],
+            "associations": [
+              "friends"
+            ]
+          },
+          "journal": "Everyone already has their own group."
+        },
+        {
+          "id": "emotion_004",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-07T08:05:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "dailyMood",
+            "valence": -0.2,
+            "labels": [
+              "worried"
+            ],
+            "associations": [
+              "education"
+            ]
+          },
+          "journal": "Presentation today."
+        },
+        {
+          "id": "emotion_005",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-07T19:40:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "momentaryEmotion",
+            "valence": 0.8,
+            "labels": [
+              "proud",
+              "excited"
+            ],
+            "associations": [
+              "education"
+            ]
+          },
+          "journal": "Presentation went better than I expected."
+        },
+        {
+          "id": "emotion_006",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-08T17:20:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "momentaryEmotion",
+            "valence": -0.55,
+            "labels": [
+              "stressed",
+              "overwhelmed"
+            ],
+            "associations": [
+              "education",
+              "tasks"
+            ]
+          },
+          "journal": "Too many assignments this week."
+        },
+        {
+          "id": "emotion_007",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-09T22:05:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "momentaryEmotion",
+            "valence": -0.35,
+            "labels": [
+              "irritated"
+            ],
+            "associations": [
+              "family"
+            ]
+          },
+          "journal": "Mom keeps asking me about school."
+        },
+        {
+          "id": "emotion_008",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-10T13:15:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "momentaryEmotion",
+            "valence": 0.55,
+            "labels": [
+              "amused",
+              "happy"
+            ],
+            "associations": [
+              "friends"
+            ]
+          },
+          "journal": "Had lunch with Sarah. It was fun."
+        },
+        {
+          "id": "emotion_009",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-11T18:50:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "momentaryEmotion",
+            "valence": -0.65,
+            "labels": [
+              "discouraged",
+              "stressed"
+            ],
+            "associations": [
+              "education"
+            ]
+          },
+          "journal": "I think I'm falling behind everyone."
+        },
+        {
+          "id": "emotion_010",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-12T20:30:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "dailyMood",
+            "valence": 0.1,
+            "labels": [
+              "indifferent"
+            ],
+            "associations": []
+          },
+          "journal": "Nothing much today."
+        },
+        {
+          "id": "emotion_011",
+          "child_id": "usr_child_001",
+          "timestamp": "2026-08-13T21:15:00+07:00",
+          "source": "healthkit",
+          "healthkit": {
+            "kind": "momentaryEmotion",
+            "valence": -0.5,
+            "labels": [
+              "worried",
+              "overwhelmed"
+            ],
+            "associations": [
+              "education"
+            ]
+          },
+          "journal": "I don't know if I'm good enough."
+        }
+      ],
+      "parent_context": {
+        "parent_id": "usr_parent_001",
+        "recent_interactions": [
+          {
+            "timestamp": "2026-08-09T20:00:00+07:00",
+            "topic": "school",
+            "interaction": "Asked Maya about her grades.",
+            "parent_emotion": "concerned"
+          },
+          {
+            "timestamp": "2026-08-11T21:00:00+07:00",
+            "topic": "school",
+            "interaction": "Asked why she had not finished her assignment.",
+            "parent_emotion": "frustrated"
+          },
+          {
+            "timestamp": "2026-08-13T19:30:00+07:00",
+            "topic": "daily routine",
+            "interaction": "Reminded Maya to study before using her phone.",
+            "parent_emotion": "concerned"
+          }
+        ],
+        "parent_logs": [
+          {
+            "timestamp": "2026-08-11T21:10:00+07:00",
+            "emotion": "worried",
+            "note": "She seems distracted lately."
+          },
+          {
+            "timestamp": "2026-08-13T22:00:00+07:00",
+            "emotion": "confused",
+            "note": "I don't understand why she doesn't talk to me anymore."
+          }
+        ]
+      }
+    }
+"""
+}
