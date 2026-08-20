@@ -125,17 +125,17 @@ enum EnglishPromptBuilder {
 
         {
           "overview": {
-            "headline": "<1 sentence, cautious>",
-            "summary": "<2-3 sentences on overall patterns, cautious>",
+            "headline": "<1 short sentence, max 10 words, cautious>",
+            "summary": "<1-2 short sentences on overall patterns, cautious>",
             "patterns": [
-              { "topic": "Education|Friends|Family|Other", "observation": "<1 sentence, cautious>" }
+              { "topic": "Education|Friends|Family|Other", "observation": "<1 short sentence, cautious>" }
             ],
             "relationship_signal": {
               "parent_concern": "low|moderate|high",
               "child_openness": "low|moderate|high",
               "possible_misalignment": true
             },
-            "key_insight": "<1 sentence connecting the parent's and child's perspectives as a possibility, not a fact>"
+            "key_insight": "<1 short sentence connecting the parent's and child's perspectives as a possibility, not a fact>"
           }
         }
 
@@ -158,14 +158,14 @@ enum EnglishPromptBuilder {
         Parent's context:
         \(compactParentContext(data))
 
-        Produce 2-4 reflection recommendations as JSON only, exactly this shape:
+        Produce 2-3 short reflection recommendations as JSON only, exactly this shape:
 
         {
           "recommendations": [
             {
               "title": "<short, neutral title>",
-              "description": "<2-3 sentences of reflection/conversation suggestion for the parent, cautious>",
-              "based_on": "<1 sentence on what pattern in the data this is based on>"
+              "description": "<1 short sentence of reflection/conversation suggestion for the parent, cautious>",
+              "based_on": "<1 short phrase on what pattern in the data this is based on>"
             }
           ]
         }

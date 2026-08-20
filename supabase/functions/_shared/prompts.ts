@@ -239,17 +239,17 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
 
 {
   "overview": {
-    "headline": "<1 kalimat, hati-hati>",
-    "summary": "<2-3 kalimat tentang pola keseluruhan, hati-hati>",
+    "headline": "<1 kalimat pendek, maks 10 kata, hati-hati>",
+    "summary": "<1-2 kalimat singkat tentang pola keseluruhan, hati-hati>",
     "patterns": [
-      { "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya", "observation": "<1 kalimat, hati-hati>" }
+      { "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya", "observation": "<1 kalimat pendek, hati-hati>" }
     ],
     "relationship_signal": {
       "parent_concern": "low|moderate|high",
       "child_openness": "low|moderate|high",
       "possible_misalignment": true
     },
-    "key_insight": "<1 kalimat yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta>"
+    "key_insight": "<1 kalimat pendek yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta>"
   }
 }
 
@@ -329,14 +329,14 @@ ${compactLogs(logs)}
 Konteks dari orang tua:
 ${compactParentContext(interactions, reflections)}
 
-Buat 2-4 rekomendasi refleksi sebagai JSON saja, persis bentuk ini:
+Buat 2-3 rekomendasi refleksi singkat sebagai JSON saja, persis bentuk ini:
 
 {
   "recommendations": [
     {
       "title": "<judul singkat, netral>",
-      "description": "<2-3 kalimat saran refleksi/tindakan untuk orang tua, hati-hati>",
-      "based_on": "<1 kalimat pola apa dari data yang mendasari rekomendasi ini>"
+      "description": "<1 kalimat singkat saran refleksi/tindakan untuk orang tua, hati-hati>",
+      "based_on": "<1 frasa singkat pola apa dari data yang mendasari rekomendasi ini>"
     }
   ]
 }
