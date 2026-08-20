@@ -63,7 +63,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("llm_mode")
+    .select("llm_mode, display_name")
     .eq("id", record.child_id)
     .single();
 
@@ -97,7 +97,7 @@ Deno.serve(async (req: Request) => {
   };
 
   try {
-    const result = await callLlm(buildHowToReactPrompt(logForPrompt), {
+    const result = await callLlm(buildHowToReactPrompt(logForPrompt, profile.display_name), {
       model: Deno.env.get("OPENROUTER_MODEL_HOW_TO_REACT") ?? DEFAULT_MODEL,
       // "/no_think" (llm.ts) — see check-log-context's comment. Testing
       // (PERFORMANCE_COMPARISON.md §8) also fixed an unrelated bug this

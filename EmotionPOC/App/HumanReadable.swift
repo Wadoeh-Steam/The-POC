@@ -200,6 +200,79 @@ enum OutputParser {
     }
 }
 
+/// Splits a field on quoted spans — PromptBuilder.swift's quoteRule asks
+/// the model to wrap any suggested line of dialogue in `"..."`, so a
+/// parent can tell "here's exactly what to say" apart from the
+/// surrounding narrative. Handles straight `"` and curly `“ ”` quotes,
+/// since translated/model output isn't guaranteed to use one consistently.
+enum QuoteSegment {
+    case text(String)
+    case quote(String)
+
+    static func parse(_ input: String) -> [QuoteSegment] {
+        var segments: [QuoteSegment] = []
+        var current = ""
+        var quoteBuffer = ""
+        var inQuote = false
+        for char in input {
+            if char == "\"" || char == "\u{201C}" || char == "\u{201D}" {
+                if inQuote {
+                    let trimmed = quoteBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { segments.append(.quote(trimmed)) }
+                    quoteBuffer = ""
+                    inQuote = false
+                } else {
+                    let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { segments.append(.text(trimmed)) }
+                    current = ""
+                    inQuote = true
+                }
+            } else if inQuote {
+                quoteBuffer.append(char)
+            } else {
+                current.append(char)
+            }
+        }
+        // Unterminated quote (e.g. truncated mid-quote) — fold back into
+        // plain text with its opening mark rather than silently dropping it.
+        if inQuote {
+            current += "\"" + quoteBuffer
+        }
+        let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { segments.append(.text(trimmed)) }
+        return segments
+    }
+}
+
+/// Renders quoted spans as their own highlighted block on a separate line
+/// — not inline within the paragraph — so a suggested line of dialogue
+/// reads as "say this" rather than blending into the narrative around it.
+struct QuoteAwareText: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(QuoteSegment.parse(text).enumerated()), id: \.offset) { _, segment in
+                switch segment {
+                case .text(let t):
+                    Text(t)
+                case .quote(let q):
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "quote.opening")
+                            .font(.caption2)
+                            .foregroundStyle(.blue)
+                        Text(q)
+                            .italic()
+                    }
+                    .padding(8)
+                    .background(Color.blue.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+    }
+}
+
 struct TaskOutputView: View {
     let task: BenchmarkTask
     let raw: String
@@ -208,7 +281,7 @@ struct TaskOutputView: View {
         Group {
             switch task {
             case .howToReact:
-                Text(raw)
+                QuoteAwareText(text: raw)
                     .font(.subheadline)
 
             case .extraction:
@@ -274,7 +347,7 @@ struct TaskOutputView: View {
                 Text(headline).font(.subheadline.bold())
             }
             if let summary = overview["summary"] as? String {
-                Text(summary).font(.caption)
+                QuoteAwareText(text: summary).font(.caption)
             }
             if let patterns = overview["patterns"] as? [[String: Any]], !patterns.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
@@ -305,7 +378,7 @@ struct TaskOutputView: View {
                 }
             }
             if let insight = overview["key_insight"] as? String {
-                Text(insight)
+                QuoteAwareText(text: insight)
                     .font(.caption.italic())
                     .padding(8)
                     .background(Color.yellow.opacity(0.15))
@@ -330,7 +403,7 @@ struct TaskOutputView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(i + 1). \(rec["title"] as? String ?? "")")
                         .font(.caption.bold())
-                    Text(rec["description"] as? String ?? "")
+                    QuoteAwareText(text: rec["description"] as? String ?? "")
                         .font(.caption)
                     if let basedOn = rec["based_on"] as? String {
                         Text("Berdasarkan: \(basedOn)")
