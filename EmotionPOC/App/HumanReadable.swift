@@ -208,7 +208,7 @@ struct TaskOutputView: View {
         Group {
             switch task {
             case .howToReact:
-                Text(raw)
+                Text(truncated(raw, maxChars: 140))
                     .font(.subheadline)
 
             case .extraction:
@@ -246,6 +246,21 @@ struct TaskOutputView: View {
         }
     }
 
+    /// Hard length cap, independent of the prompt — models (both the free
+    /// OpenRouter tier and on-device FoundationModels) don't reliably obey
+    /// the "1-2 short sentences" instruction in PromptBuilder.swift, so
+    /// this is what actually guarantees short output in the UI, at the
+    /// cost of occasionally cutting a sentence short.
+    private func truncated(_ text: String, maxChars: Int) -> String {
+        guard text.count > maxChars else { return text }
+        let cut = text.index(text.startIndex, offsetBy: maxChars)
+        var result = String(text[..<cut])
+        if let lastSpace = result.lastIndex(of: " ") {
+            result = String(result[..<lastSpace])
+        }
+        return result.trimmingCharacters(in: .whitespaces) + "…"
+    }
+
     private func extractionBody(extracted: [String: Any?], crisis: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(LogContextField.allCases, id: \.self) { field in
@@ -271,10 +286,10 @@ struct TaskOutputView: View {
     private func overviewBody(_ overview: [String: Any]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let headline = overview["headline"] as? String {
-                Text(headline).font(.subheadline.bold())
+                Text(truncated(headline, maxChars: 70)).font(.subheadline.bold())
             }
             if let summary = overview["summary"] as? String {
-                Text(summary).font(.caption)
+                Text(truncated(summary, maxChars: 140)).font(.caption)
             }
             if let patterns = overview["patterns"] as? [[String: Any]], !patterns.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
@@ -282,7 +297,7 @@ struct TaskOutputView: View {
                         if let topic = p["topic"] as? String, let obs = p["observation"] as? String {
                             HStack(alignment: .top, spacing: 4) {
                                 Text("•")
-                                Text("\(topic): \(obs)")
+                                Text("\(topic): \(truncated(obs, maxChars: 90))")
                             }
                             .font(.caption)
                         }
@@ -305,7 +320,7 @@ struct TaskOutputView: View {
                 }
             }
             if let insight = overview["key_insight"] as? String {
-                Text(insight)
+                Text(truncated(insight, maxChars: 120))
                     .font(.caption.italic())
                     .padding(8)
                     .background(Color.yellow.opacity(0.15))
@@ -330,10 +345,10 @@ struct TaskOutputView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(i + 1). \(rec["title"] as? String ?? "")")
                         .font(.caption.bold())
-                    Text(rec["description"] as? String ?? "")
+                    Text(truncated(rec["description"] as? String ?? "", maxChars: 110))
                         .font(.caption)
                     if let basedOn = rec["based_on"] as? String {
-                        Text("Berdasarkan: \(basedOn)")
+                        Text("Berdasarkan: \(truncated(basedOn, maxChars: 70))")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
