@@ -23,6 +23,14 @@ struct ContentView: View {
     @State private var runningServerOnly = false
     @State private var console: [String] = []
 
+    // Stored on-device only (Settings.app-visible UserDefaults, never
+    // written to any file in this repo) — a plain tap on the app icon
+    // doesn't carry the OPENROUTER_API_KEY env var the way `devicectl -e`
+    // does, so server calls silently failed whenever the app wasn't
+    // launched from a terminal (observed live, 2026-08-20). This lets
+    // testing happen standalone, no relaunch-with-env-var round trip needed.
+    @AppStorage("openrouter_api_key") private var storedAPIKey: String = ""
+
     private var running: Bool { runningComparison || runningServerOnly }
 
     // SwiftUI-driven translation test — the ONLY path that can trigger
@@ -61,6 +69,15 @@ struct ContentView: View {
                         Text(availability)
                             .font(.caption2.monospaced())
                     }
+                }
+
+                Section("Pengaturan Server") {
+                    SecureField("OpenRouter API Key", text: $storedAPIKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Text("Tersimpan di HP ini aja. Dipakai kalau app dibuka langsung dari ikon (bukan lewat devicectl/Xcode) sehingga OPENROUTER_API_KEY nggak ada di environment.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Pengaturan Awal (sekali saja)") {
@@ -217,7 +234,7 @@ struct ContentView: View {
     /// already has one entry per BenchmarkTask.
     private func runServerPass(dataset: DummyDataset) async {
         do {
-            let config = try ServerOpenRouter.defaultConfig()
+            let config = try ServerOpenRouter.defaultConfig(apiKeyOverride: storedAPIKey)
             for (i, task) in BenchmarkTask.allCases.enumerated() {
                 let prompt = PromptBuilder.prompt(for: task, data: dataset)
                 do {

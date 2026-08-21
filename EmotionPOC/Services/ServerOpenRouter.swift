@@ -19,10 +19,18 @@ enum ServerOpenRouter {
     /// final decision (free tier, empirically chosen after 4 of 5
     /// candidates failed testing) — override via OPENROUTER_MODEL to
     /// compare against something else.
-    static func defaultConfig() throws -> Config {
-        guard let key = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"], !key.isEmpty else {
+    /// `apiKeyOverride` exists for ContentView.swift's in-app-entered key
+    /// (@AppStorage, see the "Pengaturan Server" section) — a normal tap on
+    /// the app icon doesn't carry the shell/devicectl environment, so the
+    /// env var alone left server calls silently failing whenever the app
+    /// wasn't launched via `devicectl -e` (observed live, 2026-08-20:
+    /// "button test server nya ga works"). BenchmarkCLI/CLIEntry.swift
+    /// don't pass an override — CLI usage stays purely env-var-based.
+    static func defaultConfig(apiKeyOverride: String? = nil) throws -> Config {
+        let envKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"]
+        guard let key = [envKey, apiKeyOverride].compactMap({ $0 }).first(where: { !$0.isEmpty }) else {
             throw NSError(domain: "ServerOpenRouter", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "OPENROUTER_API_KEY env var missing"])
+                          userInfo: [NSLocalizedDescriptionKey: "OPENROUTER_API_KEY env var missing and no key entered in app"])
         }
         let model = ProcessInfo.processInfo.environment["OPENROUTER_MODEL"] ?? "nvidia/nemotron-nano-9b-v2:free"
         let base = ProcessInfo.processInfo.environment["OPENROUTER_BASE_URL"] ?? "https://openrouter.ai/api/v1"
