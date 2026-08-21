@@ -300,7 +300,7 @@ struct TaskOutputView: View {
         Group {
             switch task {
             case .howToReact:
-                QuoteAwareText(text: raw, maxTextChars: 140)
+                QuoteAwareText(text: raw)
                     .font(.subheadline)
 
             case .extraction:
@@ -363,10 +363,10 @@ struct TaskOutputView: View {
     private func overviewBody(_ overview: [String: Any]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let headline = overview["headline"] as? String {
-                Text(truncatedText(headline, maxChars: 70)).font(.subheadline.bold())
+                Text(headline).font(.subheadline.bold())
             }
             if let summary = overview["summary"] as? String {
-                QuoteAwareText(text: summary, maxTextChars: 140).font(.caption)
+                QuoteAwareText(text: summary).font(.caption)
             }
             if let patterns = overview["patterns"] as? [[String: Any]], !patterns.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
@@ -374,7 +374,7 @@ struct TaskOutputView: View {
                         if let topic = p["topic"] as? String, let obs = p["observation"] as? String {
                             HStack(alignment: .top, spacing: 4) {
                                 Text("•")
-                                Text("\(topic): \(truncatedText(obs, maxChars: 90))")
+                                Text("\(topic): \(obs)")
                             }
                             .font(.caption)
                         }
@@ -397,7 +397,7 @@ struct TaskOutputView: View {
                 }
             }
             if let insight = overview["key_insight"] as? String {
-                QuoteAwareText(text: insight, maxTextChars: 120)
+                QuoteAwareText(text: insight)
                     .font(.caption.italic())
                     .padding(8)
                     .background(Color.yellow.opacity(0.15))
@@ -422,10 +422,10 @@ struct TaskOutputView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(i + 1). \(rec["title"] as? String ?? "")")
                         .font(.caption.bold())
-                    QuoteAwareText(text: rec["description"] as? String ?? "", maxTextChars: 110)
+                    QuoteAwareText(text: rec["description"] as? String ?? "")
                         .font(.caption)
                     if let basedOn = rec["based_on"] as? String {
-                        Text("Berdasarkan: \(truncatedText(basedOn, maxChars: 70))")
+                        Text("Berdasarkan: \(basedOn)")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
