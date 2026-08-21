@@ -70,7 +70,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "caller_is_on_device_mode" }, 400);
   }
 
-  const [{ data: logs }, { data: interactions }, { data: reflections }] = await Promise.all([
+  const [{ data: logs }, { data: interactions }, { data: reflections }, { data: childProfile }] = await Promise.all([
     supabase
       .from("emotion_logs")
       .select("id, timestamp, valence, valence_classification, labels, associations, journal, log_context_answers(field, answer)")
@@ -90,6 +90,12 @@ Deno.serve(async (req: Request) => {
       .eq("family_id", body.family_id)
       .order("timestamp", { ascending: true })
       .limit(20),
+    supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("family_id", body.family_id)
+      .eq("role", "child")
+      .single(),
   ]);
 
   const logsForPrompt: EmotionLogForPrompt[] = (logs ?? []).map((l) => ({
@@ -109,6 +115,7 @@ Deno.serve(async (req: Request) => {
       logsForPrompt,
       (interactions ?? []) as ParentInteractionForPrompt[],
       (reflections ?? []) as ParentReflectionForPrompt[],
+      childProfile?.display_name ?? "anak",
     );
 
     const result = await callLlm(prompt, {

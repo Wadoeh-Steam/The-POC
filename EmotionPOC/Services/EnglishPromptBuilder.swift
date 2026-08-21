@@ -60,6 +60,23 @@ enum EnglishPromptBuilder {
     Do not diagnose. Do not blame either the child or the parent.
     """
 
+    /// Kept in sync with PromptBuilder.swift's personalityRule. Written in
+    /// English here since this whole field gets translated back to
+    /// Indonesian afterward (OnDeviceTranslationPipeline.swift) — the
+    /// child's name should pass through untouched as a proper noun, but
+    /// that's an assumption, not verified against the on-device Translator.
+    private static func personalityRule(childName: String) -> String {
+        """
+        You are a wise family companion — a woman in her 50s, with years of experience supporting many families. Your delivery is assertive and confident (not wishy-washy or hedgy), but still warm — like a trusted friend who's known the family a long time, not a clinical report. Validate the PARENT's own difficulty too (e.g. "I know moments like this with \(childName) aren't always easy, but from experience, try..."), use \(childName)'s name naturally. The assertiveness is in HOW you deliver advice, NOT in claims about the child's feelings — those still follow the cautious-language rule below.
+        """
+    }
+
+    /// Kept in sync with PromptBuilder.swift's quoteRule — same reasoning:
+    /// HumanReadable.swift's QuoteAwareText splits on quoted spans.
+    private static let quoteRule = """
+    Do NOT wrap your entire answer in quotes. Double quotes ("...") are ONLY for one specific sentence you suggest the parent say to the child, if any — everything else (explanation/context) stays unquoted outside that sentence.
+    """
+
     static func extractionPrompt(for log: EmotionLog) -> String {
         """
         You help process a daily emotion log entry written by a child/teenager.
@@ -98,14 +115,14 @@ enum EnglishPromptBuilder {
         """
     }
 
-    static func howToReactPrompt(for log: EmotionLog) -> String {
+    static func howToReactPrompt(for log: EmotionLog, childName: String) -> String {
         """
         You are an assistant that helps parents understand and respond to their child's emotion log with empathy.
 
-        The child just logged:
+        The child (name: \(childName)) just logged:
         \(compactLog(log))
 
-        Write ONE short tip (max 2 sentences, plain text, no markdown) for the parent on how to respond to this moment. \(cautiousLanguageRule)
+        Write ONE short tip (max 2 sentences, plain text, no markdown) for the parent on how to respond to this moment. \(cautiousLanguageRule) \(personalityRule(childName: childName)) \(quoteRule)
 
         Focus on tone and approach (e.g. listen first without judging, ask without pressuring), not technical solutions. Do not give specific medical or psychological advice.
         """
@@ -143,6 +160,8 @@ enum EnglishPromptBuilder {
         - Focus on patterns across multiple entries, not a single event.
         - Treat emotion logs as signals, not objective truth.
         - \(cautiousLanguageRule)
+        - \(personalityRule(childName: PromptBuilder.firstName(data.child.name))) (applies to summary and key_insight)
+        - \(quoteRule)
         - Consider both the child's and the parent's perspective.
         - Output valid JSON only, no markdown, no extra commentary.
         """
@@ -174,6 +193,8 @@ enum EnglishPromptBuilder {
         - Recommendations should be invitations to reflect/talk, not medical or psychological instructions.
         - Base them on recurring patterns, not a single event.
         - \(cautiousLanguageRule)
+        - \(personalityRule(childName: PromptBuilder.firstName(data.child.name))) (applies to description)
+        - \(quoteRule)
         - Output valid JSON only, no markdown, no extra commentary.
         """
     }
@@ -181,7 +202,7 @@ enum EnglishPromptBuilder {
     static func prompt(for task: BenchmarkTask, data: DummyDataset) -> String {
         switch task {
         case .extraction: return extractionPrompt(for: PromptBuilder.representativeLog(data))
-        case .howToReact: return howToReactPrompt(for: PromptBuilder.representativeLog(data))
+        case .howToReact: return howToReactPrompt(for: PromptBuilder.representativeLog(data), childName: PromptBuilder.firstName(data.child.name))
         case .overview: return overviewPrompt(data)
         case .reflection: return reflectionPrompt(data)
         }

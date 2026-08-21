@@ -61,6 +61,13 @@ enum PromptBuilder {
         }
     }
 
+    /// First name only — "Maya Anderson" reads formal/clinical in a warm
+    /// personal-address sentence ("aku tahu momen kayak gini sama Maya
+    /// Anderson..."), "Maya" reads like how a person would actually say it.
+    static func firstName(_ fullName: String) -> String {
+        fullName.split(separator: " ").first.map(String.init) ?? fullName
+    }
+
     // MARK: - Compact representations
     // Deliberately cites valence_classification, not the raw float — every
     // prompt below instructs the model not to cite raw numbers, so the
@@ -112,6 +119,26 @@ enum PromptBuilder {
     Jangan mendiagnosis. Jangan menyalahkan salah satu pihak (anak atau orang tua).
     """
 
+    /// Persona: assertive in DELIVERY/confidence, not in the claims made —
+    /// cautiousLanguageRule (hedging on what's actually happening with the
+    /// child) is a safety guardrail, not something this persona overrides.
+    /// "Tegas" here means she sounds sure of her own advice, not that she
+    /// asserts diagnoses.
+    private static func personalityRule(childName: String) -> String {
+        """
+        Kamu berperan sebagai pendamping keluarga — perempuan bijaksana usia sekitar 50 tahun, sudah bertahun-tahun mendampingi banyak keluarga. Gaya bicaramu tegas dan percaya diri (bukan ragu-ragu atau muter-muter), tapi tetap hangat — seperti teman tepercaya yang sudah kenal lama, bukan laporan klinis. Validasi juga perasaan orang tua (misalnya: "Aku tahu momen kayak gini sama \(childName) nggak selalu gampang, tapi dari pengalaman, coba..."), sebut nama \(childName) secara alami. Tegasnya di cara kamu menyampaikan saran, BUKAN di klaim tentang perasaan anak — soal itu tetap ikuti aturan bahasa hati-hati di bawah.
+        """
+    }
+
+    /// HumanReadable.swift's QuoteAwareText splits on `"..."` and renders
+    /// each quoted span as its own highlighted block, separate from the
+    /// surrounding paragraph — this is what makes that split meaningful:
+    /// the model already tends to quote suggested dialogue naturally, this
+    /// just makes it consistent and intentional.
+    private static let quoteRule = """
+    JANGAN bungkus seluruh jawabanmu dalam tanda kutip. Tanda kutip ganda ("...") HANYA untuk satu kalimat spesifik yang kamu sarankan diucapkan orang tua ke anak, kalau ada — sisanya (penjelasan/konteks) tetap tanpa kutip di luar kalimat itu.
+    """
+
     // MARK: - 1. Extraction + crisis-signal check (check-log-context, ARCHITECTURE.md §3a, §2b)
 
     static func extractionPrompt(for log: EmotionLog) -> String {
@@ -152,17 +179,17 @@ enum PromptBuilder {
         """
     }
 
-    // MARK: - 2. How-to-react tip (generate-how-to-react)
+    // MARK: - 2. How-to-react tip (generate-how-to-react) 
     // Plain LLM, no RAG/trusted-source grounding — deferred, see PLAN.md Phase 5.
 
-    static func howToReactPrompt(for log: EmotionLog) -> String {
+    static func howToReactPrompt(for log: EmotionLog, childName: String) -> String {
         """
         Kamu adalah asisten yang membantu orang tua memahami dan merespons catatan emosi anaknya dengan empati.
 
-        Anak baru saja mencatat:
+        Anak (nama: \(childName)) baru saja mencatat:
         \(compactLog(log))
 
-        Tulis SATU tip singkat (maksimal 2 kalimat, bahasa Indonesia, plain text tanpa markdown) untuk orang tua tentang bagaimana sebaiknya merespons momen ini. \(cautiousLanguageRule)
+        Tulis SATU tip singkat (maksimal 2 kalimat, bahasa Indonesia, plain text tanpa markdown) untuk orang tua tentang bagaimana sebaiknya merespons momen ini. \(cautiousLanguageRule) \(personalityRule(childName: childName)) \(quoteRule)
 
         Fokus pada nada dan pendekatan (misal: dengarkan dulu tanpa menghakimi, tanyakan tanpa memaksa), bukan solusi teknis. Jangan berikan saran medis atau psikologis spesifik.
         """
@@ -202,6 +229,8 @@ enum PromptBuilder {
         - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
         - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
         - \(cautiousLanguageRule)
+        - \(personalityRule(childName: firstName(data.child.name))) (berlaku untuk summary dan key_insight)
+        - \(quoteRule)
         - Pertimbangkan perspektif anak maupun orang tua.
         - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.
         """
@@ -235,6 +264,8 @@ enum PromptBuilder {
         - Rekomendasi berupa ajakan refleksi/percakapan, bukan instruksi medis atau psikologis.
         - Dasarkan pada pola berulang, bukan kejadian tunggal.
         - \(cautiousLanguageRule)
+        - \(personalityRule(childName: firstName(data.child.name))) (berlaku untuk description)
+        - \(quoteRule)
         - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.
         """
     }
@@ -252,7 +283,7 @@ enum PromptBuilder {
     static func prompt(for task: BenchmarkTask, data: DummyDataset) -> String {
         switch task {
         case .extraction: return extractionPrompt(for: representativeLog(data))
-        case .howToReact: return howToReactPrompt(for: representativeLog(data))
+        case .howToReact: return howToReactPrompt(for: representativeLog(data), childName: firstName(data.child.name))
         case .overview: return overviewPrompt(data)
         case .reflection: return reflectionPrompt(data)
         }

@@ -100,6 +100,27 @@ const CAUTIOUS_LANGUAGE_RULE_ID = `Gunakan bahasa hati-hati saja: "mungkin", "ta
 Jangan pernah gunakan: "mengalami gangguan", "depresi", "ini membuktikan bahwa". \
 Jangan mendiagnosis. Jangan menyalahkan salah satu pihak (anak atau orang tua).`;
 
+// First name only — reads personal ("Maya"), not formal/clinical ("Maya
+// Anderson"), in a warm-address sentence. Kept in sync with
+// PromptBuilder.swift's firstName().
+function firstName(fullName: string): string {
+  return fullName.split(" ")[0] ?? fullName;
+}
+
+// Kept in sync with PromptBuilder.swift's personalityRule. Assertive in
+// DELIVERY/confidence only — cautiousLanguageRule (hedging on claims about
+// the child) is a safety guardrail this persona doesn't override.
+function personalityRuleId(childName: string): string {
+  return `Kamu berperan sebagai pendamping keluarga — perempuan bijaksana usia sekitar 50 tahun, sudah bertahun-tahun mendampingi banyak keluarga. Gaya bicaramu tegas dan percaya diri (bukan ragu-ragu atau muter-muter), tapi tetap hangat — seperti teman tepercaya yang sudah kenal lama, bukan laporan klinis. Validasi juga perasaan orang tua (misalnya: "Aku tahu momen kayak gini sama ${childName} nggak selalu gampang, tapi dari pengalaman, coba..."), sebut nama ${childName} secara alami. Tegasnya di cara kamu menyampaikan saran, BUKAN di klaim tentang perasaan anak — soal itu tetap ikuti aturan bahasa hati-hati di bawah.`;
+}
+
+// Kept in sync with PromptBuilder.swift's quoteRule — the client renders
+// quoted spans as a separate highlighted block (QuoteAwareText), so this
+// explicitly forbids wrapping the whole answer in quotes (observed live,
+// 2026-08-20: the model did exactly that on the first wording).
+const QUOTE_RULE_ID =
+  `JANGAN bungkus seluruh jawabanmu dalam tanda kutip. Tanda kutip ganda ("...") HANYA untuk satu kalimat spesifik yang kamu sarankan diucapkan orang tua ke anak, kalau ada — sisanya (penjelasan/konteks) tetap tanpa kutip di luar kalimat itu.`;
+
 // ============================================================================
 // 1. Extraction + crisis-signal check (check-log-context, ARCHITECTURE.md §3a, §2b)
 // ============================================================================
@@ -193,13 +214,14 @@ export const EXTRACTION_JSON_SCHEMA = {
 // Plain LLM, no RAG/trusted-source grounding — deferred, see PLAN.md Phase 5.
 // ============================================================================
 
-export function buildHowToReactPrompt(log: EmotionLogForPrompt): string {
+export function buildHowToReactPrompt(log: EmotionLogForPrompt, childName: string): string {
+  const name = firstName(childName);
   return `Kamu adalah asisten yang membantu orang tua memahami dan merespons catatan emosi anaknya dengan empati.
 
-Anak baru saja mencatat:
+Anak (nama: ${name}) baru saja mencatat:
 ${compactLog(log)}
 
-Tulis SATU tip singkat (maksimal 2 kalimat, bahasa Indonesia, plain text tanpa markdown) untuk orang tua tentang bagaimana sebaiknya merespons momen ini. ${CAUTIOUS_LANGUAGE_RULE_ID}
+Tulis SATU tip singkat (maksimal 2 kalimat, bahasa Indonesia, plain text tanpa markdown) untuk orang tua tentang bagaimana sebaiknya merespons momen ini. ${CAUTIOUS_LANGUAGE_RULE_ID} ${personalityRuleId(name)} ${QUOTE_RULE_ID}
 
 Fokus pada nada dan pendekatan (misal: dengarkan dulu tanpa menghakimi, tanyakan tanpa memaksa), bukan solusi teknis. Jangan berikan saran medis atau psikologis spesifik.`;
 }
@@ -226,7 +248,9 @@ export function buildOverviewPrompt(
   logs: EmotionLogForPrompt[],
   interactions: ParentInteractionForPrompt[],
   reflections: ParentReflectionForPrompt[],
+  childName: string,
 ): string {
+  const name = firstName(childName);
   return `Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati.
 
 Catatan emosi anak (minggu terakhir):
@@ -257,6 +281,8 @@ Aturan:
 - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
 - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
+- ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
+- ${QUOTE_RULE_ID}
 - Pertimbangkan perspektif anak maupun orang tua.
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
 }
@@ -320,7 +346,9 @@ export function buildReflectionPrompt(
   logs: EmotionLogForPrompt[],
   interactions: ParentInteractionForPrompt[],
   reflections: ParentReflectionForPrompt[],
+  childName: string,
 ): string {
+  const name = firstName(childName);
   return `Kamu adalah asisten keluarga yang empatik. Berdasarkan seluruh riwayat catatan emosi anak dan konteks orang tua, berikan rekomendasi refleksi untuk membantu orang tua terhubung lebih baik dengan anaknya.
 
 Seluruh riwayat catatan emosi anak:
@@ -345,6 +373,8 @@ Aturan:
 - Rekomendasi berupa ajakan refleksi/percakapan, bukan instruksi medis atau psikologis.
 - Dasarkan pada pola berulang, bukan kejadian tunggal.
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
+- ${personalityRuleId(name)} (berlaku untuk description)
+- ${QUOTE_RULE_ID}
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
 }
 

@@ -60,7 +60,7 @@ Deno.serve(async (req: Request) => {
 
   // Full history for reflections (vs. generate-overview's recency-limited
   // read) — recommendations are meant to be based on the whole picture.
-  const [{ data: logs }, { data: interactions }, { data: reflectionsCtx }] = await Promise.all([
+  const [{ data: logs }, { data: interactions }, { data: reflectionsCtx }, { data: childProfile }] = await Promise.all([
     supabase
       .from("emotion_logs")
       .select("id, timestamp, valence, valence_classification, labels, associations, journal, log_context_answers(field, answer)")
@@ -80,6 +80,12 @@ Deno.serve(async (req: Request) => {
       .eq("family_id", body.family_id)
       .order("timestamp", { ascending: true })
       .limit(50),
+    supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("family_id", body.family_id)
+      .eq("role", "child")
+      .single(),
   ]);
 
   const logsForPrompt: EmotionLogForPrompt[] = (logs ?? []).map((l) => ({
@@ -99,6 +105,7 @@ Deno.serve(async (req: Request) => {
       logsForPrompt,
       (interactions ?? []) as ParentInteractionForPrompt[],
       (reflectionsCtx ?? []) as ParentReflectionForPrompt[],
+      childProfile?.display_name ?? "anak",
     );
 
     const result = await callLlm(prompt, {
