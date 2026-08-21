@@ -121,7 +121,9 @@ PENTING soal siapa yang kamu ajak bicara: seluruh jawabanmu ditujukan KEPADA ORA
 // explicitly forbids wrapping the whole answer in quotes (observed live,
 // 2026-08-20: the model did exactly that on the first wording).
 const QUOTE_RULE_ID =
-  `JANGAN bungkus seluruh jawabanmu dalam tanda kutip. Tanda kutip ganda ("...") HANYA untuk satu kalimat spesifik yang kamu sarankan diucapkan orang tua ke anak, kalau ada — sisanya (penjelasan/konteks) tetap tanpa kutip di luar kalimat itu.`;
+  `JANGAN bungkus seluruh jawabanmu dalam tanda kutip. Tanda kutip ganda ("...") HANYA untuk satu kalimat spesifik yang kamu sarankan diucapkan orang tua ke anak, kalau ada — sisanya (penjelasan/konteks) tetap tanpa kutip di luar kalimat itu.
+
+Kalimat di dalam tanda kutip itu HARUS casual dan hangat, persis cara orang tua asli ngomong ke anaknya — BUKAN bahasa formal/baku. Pakai "aku"/"kamu", bukan "saya"/"Anda". Boleh pakai sapaan sayang seperti "nak" atau "sayang", dan sebut diri sebagai "mama"/"ibu"/"ayah" kalau pas, bukan "saya". Contoh BENAR: "Nak, mama tau kamu lagi capek banget sama tugas kelompok itu." Contoh SALAH (terlalu kaku): "Saya dapat melihat bahwa proyek kelompok menantang bagi Anda, Maya."`;
 
 // ============================================================================
 // 1. Extraction + crisis-signal check (check-log-context, ARCHITECTURE.md §3a, §2b)

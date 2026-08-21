@@ -77,6 +77,8 @@ enum EnglishPromptBuilder {
     /// HumanReadable.swift's QuoteAwareText splits on quoted spans.
     private static let quoteRule = """
     Do NOT wrap your entire answer in quotes. Double quotes ("...") are ONLY for one specific sentence you suggest the parent say to the child, if any — everything else (explanation/context) stays unquoted outside that sentence.
+
+    The quoted sentence must sound casual and warm, like a real parent actually talking to their kid — NOT stiff or formal. Use contractions and casual terms of endearment (e.g. "sweetie", "honey"), not formal phrasing. Correct example: "Sweetie, I know that group project has been really tough." Wrong (too stiff): "I can see that the group project has been challenging for you."
     """
 
     static func extractionPrompt(for log: EmotionLog) -> String {
