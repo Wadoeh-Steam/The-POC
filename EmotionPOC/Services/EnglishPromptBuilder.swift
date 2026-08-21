@@ -60,26 +60,21 @@ enum EnglishPromptBuilder {
     Do not diagnose. Do not blame either the child or the parent.
     """
 
-    /// Kept in sync with PromptBuilder.swift's personalityRule. Written in
-    /// English here since this whole field gets translated back to
-    /// Indonesian afterward (OnDeviceTranslationPipeline.swift) — the
-    /// child's name should pass through untouched as a proper noun, but
-    /// that's an assumption, not verified against the on-device Translator.
-    /// Kept deliberately terse — this text plus reflectionPrompt's full log
-    /// history blew past FoundationModels' 4096-token context window at
-    /// the previous, more verbose wording (observed live, 2026-08-20:
-    /// exceededContextWindowSize at 4128 tokens).
+    /// Kept in sync with PromptBuilder.swift's personalityRule, but
+    /// deliberately DROPS the quoted-dialogue requirement that exists on
+    /// the OpenRouter/backend side (no quoteRule here) — the on-device
+    /// model couldn't reliably hold persona + addressee + quote-formatting
+    /// + casual-tone + length all at once (5 rounds of live regressions,
+    /// 2026-08-20: vocative-address bug → endearment bleeding into the
+    /// whole answer → context-window overflow → whole-answer quote-wrap →
+    /// single-quotes instead of double + addressing "both of you"
+    /// together). Scoped down to just what this model can hold reliably:
+    /// correct addressee and a warm tone, no forced quote structure.
     private static func personalityRule(childName: String) -> String {
         """
-        You're a wise, warm, assertive 50s family companion — confident advice, not hedgy or clinical. Validate the PARENT's own difficulty too. Mention \(childName) naturally mid-sentence, NEVER as an opening address ("\(childName), ...") — you're speaking TO the parent ABOUT \(childName), not to \(childName) directly (exception: inside the quoted script below, "you" may address the child).
+        You're a wise, warm, assertive 50s family companion — confident advice, not hedgy or clinical. Validate the PARENT's own difficulty too. Mention \(childName) naturally mid-sentence, NEVER as an opening address ("\(childName), ..."). You are speaking TO THE PARENT ONLY, ABOUT \(childName) — never to \(childName) directly, and never to "both of you" together.
         """
     }
-
-    /// Kept in sync with PromptBuilder.swift's quoteRule — same reasoning:
-    /// HumanReadable.swift's QuoteAwareText splits on quoted spans.
-    private static let quoteRule = """
-    Include exactly one complete double-quoted sentence (not a 2-3 word fragment) — a specific line the parent could say to the child, written casual and warm like real spoken language (not "I can see that...", more like "Sweetie, I know this has been rough"). Everything else in your answer stays unquoted — never wrap the whole answer in quotes.
-    """
 
     static func extractionPrompt(for log: EmotionLog) -> String {
         """
@@ -126,7 +121,7 @@ enum EnglishPromptBuilder {
         The child (name: \(childName)) just logged:
         \(compactLog(log))
 
-        Write ONE short tip (max 2 sentences, plain text, no markdown) for the parent on how to respond to this moment. \(cautiousLanguageRule) \(personalityRule(childName: childName)) \(quoteRule)
+        Write ONE short tip (max 2 sentences, plain text, no markdown) for the parent on how to respond to this moment. \(cautiousLanguageRule) \(personalityRule(childName: childName))
 
         Focus on tone and approach (e.g. listen first without judging, ask without pressuring), not technical solutions. Do not give specific medical or psychological advice.
         """
@@ -165,7 +160,6 @@ enum EnglishPromptBuilder {
         - Treat emotion logs as signals, not objective truth.
         - \(cautiousLanguageRule)
         - \(personalityRule(childName: PromptBuilder.firstName(data.child.name))) (applies to summary and key_insight)
-        - \(quoteRule)
         - Consider both the child's and the parent's perspective.
         - Output valid JSON only, no markdown, no extra commentary.
         """
@@ -198,7 +192,6 @@ enum EnglishPromptBuilder {
         - Base them on recurring patterns, not a single event.
         - \(cautiousLanguageRule)
         - \(personalityRule(childName: PromptBuilder.firstName(data.child.name))) (applies to description)
-        - \(quoteRule)
         - Output valid JSON only, no markdown, no extra commentary.
         """
     }
