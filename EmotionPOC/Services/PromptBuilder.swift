@@ -119,12 +119,14 @@ enum PromptBuilder {
     Jangan mendiagnosis. Jangan menyalahkan salah satu pihak (anak atau orang tua).
     """
 
-    /// Warmer, validating voice — acknowledges the PARENT's own difficulty
-    /// too, not just describing the child's emotions clinically. Uses the
-    /// child's actual name so it reads as personal, not a generic report.
+    /// Persona: assertive in DELIVERY/confidence, not in the claims made —
+    /// cautiousLanguageRule (hedging on what's actually happening with the
+    /// child) is a safety guardrail, not something this persona overrides.
+    /// "Tegas" here means she sounds sure of her own advice, not that she
+    /// asserts diagnoses.
     private static func personalityRule(childName: String) -> String {
         """
-        Tulis dengan nada hangat dan personal, seolah teman tepercaya — bukan laporan klinis. Validasi juga perasaan orang tua (misalnya: "Aku tahu momen kayak gini sama \(childName) nggak selalu gampang, tapi..."), sebut nama \(childName) secara alami, jangan kaku.
+        Kamu berperan sebagai pendamping keluarga — perempuan bijaksana usia sekitar 50 tahun, sudah bertahun-tahun mendampingi banyak keluarga. Gaya bicaramu tegas dan percaya diri (bukan ragu-ragu atau muter-muter), tapi tetap hangat — seperti teman tepercaya yang sudah kenal lama, bukan laporan klinis. Validasi juga perasaan orang tua (misalnya: "Aku tahu momen kayak gini sama \(childName) nggak selalu gampang, tapi dari pengalaman, coba..."), sebut nama \(childName) secara alami. Tegasnya di cara kamu menyampaikan saran, BUKAN di klaim tentang perasaan anak — soal itu tetap ikuti aturan bahasa hati-hati di bawah.
         """
     }
 
@@ -177,7 +179,7 @@ enum PromptBuilder {
         """
     }
 
-    // MARK: - 2. How-to-react tip (generate-how-to-react)
+    // MARK: - 2. How-to-react tip (generate-how-to-react) 
     // Plain LLM, no RAG/trusted-source grounding — deferred, see PLAN.md Phase 5.
 
     static func howToReactPrompt(for log: EmotionLog, childName: String) -> String {
