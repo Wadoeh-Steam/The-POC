@@ -30,6 +30,12 @@ struct ContentView: View {
     // launched from a terminal (observed live, 2026-08-20). This lets
     // testing happen standalone, no relaunch-with-env-var round trip needed.
     @AppStorage("openrouter_api_key") private var storedAPIKey: String = ""
+    // Fallback chain when OpenRouter fails (e.g. daily free-tier rate
+    // limit — hit live, 2026-08-21): Requesty next (OpenAI-compatible
+    // router, "mistral/leanstral-1-5" is its only free model with clean
+    // JSON schema support), then Gemini directly as a last resort.
+    @AppStorage("requesty_api_key") private var storedRequestyKey: String = ""
+    @AppStorage("gemini_api_key") private var storedGeminiKey: String = ""
 
     private var running: Bool { runningComparison || runningServerOnly }
 
@@ -75,7 +81,13 @@ struct ContentView: View {
                     SecureField("OpenRouter API Key", text: $storedAPIKey)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Text("Tersimpan di HP ini aja. Dipakai kalau app dibuka langsung dari ikon (bukan lewat devicectl/Xcode) sehingga OPENROUTER_API_KEY nggak ada di environment.")
+                    SecureField("Requesty API Key (fallback)", text: $storedRequestyKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    SecureField("Gemini API Key (fallback)", text: $storedGeminiKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Text("Tersimpan di HP ini aja. Kalau OpenRouter gagal (misal rate limit harian), otomatis coba Requesty, lalu Gemini.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -232,21 +244,76 @@ struct ContentView: View {
 
     /// Shared by runComparison() and runServerOnly() — assumes `comparisons`
     /// already has one entry per BenchmarkTask.
+    /// Fallback chain, per task: OpenRouter → Requesty → Gemini. Added
+    /// 2026-08-21 after OpenRouter's free-tier daily cap (50 req/day) got
+    /// exhausted mid-session from repeated testing. Requesty is
+    /// OpenAI-compatible (same request/response shape as OpenRouter, so
+    /// ServerOpenRouter.generate works against it directly with a
+    /// different Config) — "mistral/leanstral-1-5" is its only free model
+    /// with clean JSON-schema support (checked live against
+    /// router.requesty.ai/v1/models). Gemini is a different API shape
+    /// (Google's own, not OpenAI-compatible), handled by the existing
+    /// ServerGemini.swift and re-tagged into a ServerOpenRouter.Result so
+    /// the UI can render whichever provider actually answered without a
+    /// separate result type.
     private func runServerPass(dataset: DummyDataset) async {
-        do {
-            let config = try ServerOpenRouter.defaultConfig(apiKeyOverride: storedAPIKey)
-            for (i, task) in BenchmarkTask.allCases.enumerated() {
-                let prompt = PromptBuilder.prompt(for: task, data: dataset)
+        let openRouterConfig = try? ServerOpenRouter.defaultConfig(apiKeyOverride: storedAPIKey)
+        let requestyKey = [ProcessInfo.processInfo.environment["REQUESTY_API_KEY"], storedRequestyKey]
+            .compactMap { $0 }.first(where: { !$0.isEmpty })
+        let requestyConfig = requestyKey.map {
+            ServerOpenRouter.Config(apiKey: $0, model: "mistral/leanstral-1-5", baseURL: "https://router.requesty.ai/v1")
+        }
+        let geminiConfig = try? ServerGemini.defaultConfig(apiKeyOverride: storedGeminiKey)
+
+        for (i, task) in BenchmarkTask.allCases.enumerated() {
+            let prompt = PromptBuilder.prompt(for: task, data: dataset)
+
+            if let config = openRouterConfig {
                 do {
                     let r = try await ServerOpenRouter.generate(task: task, prompt: prompt, config: config)
                     comparisons[i].server = r
                     log(ServerOpenRouter.format(r))
+                    continue
                 } catch {
-                    log("[openrouter:\(config.model)] \(task.rawValue) → FAILED (\(error))")
+                    log("[openrouter:\(config.model)] \(task.rawValue) → FAILED (\(error)), trying Requesty")
                 }
+            } else {
+                log("[openrouter] no API key available, trying Requesty")
             }
-        } catch {
-            log("[server] config failed: \(error)")
+
+            if let config = requestyConfig {
+                do {
+                    var r = try await ServerOpenRouter.generate(task: task, prompt: prompt, config: config)
+                    r.model = "requesty:\(config.model)"
+                    comparisons[i].server = r
+                    log(ServerOpenRouter.format(r))
+                    continue
+                } catch {
+                    log("[requesty:\(config.model)] \(task.rawValue) → FAILED (\(error)), trying Gemini")
+                }
+            } else {
+                log("[requesty] no API key available, trying Gemini")
+            }
+
+            if let config = geminiConfig {
+                do {
+                    let r = try await ServerGemini.generate(task: task, prompt: prompt, config: config)
+                    comparisons[i].server = ServerOpenRouter.Result(
+                        model: "gemini:\(config.model)", task: task, ok: true, error: nil,
+                        totalMs: r.totalMs, promptTokens: r.promptTokens, outputTokens: r.outputTokens,
+                        reasoningTokens: 0, finishReason: "stop", outChars: r.outChars, outWords: r.outWords,
+                        tokPerSec: r.tokPerSec, output: r.output
+                    )
+                    log(ServerGemini.format(r))
+                    continue
+                } catch {
+                    log("[gemini:\(config.model)] \(task.rawValue) → FAILED (\(error))")
+                }
+            } else {
+                log("[gemini] no API key available")
+            }
+
+            log("[server] \(task.rawValue) → all providers failed")
         }
     }
 

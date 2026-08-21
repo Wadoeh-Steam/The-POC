@@ -10,10 +10,15 @@ enum ServerGemini {
         var baseURL: String
     }
 
-    static func defaultConfig() throws -> Config {
-        guard let key = ProcessInfo.processInfo.environment["GEMINI_API_KEY"], !key.isEmpty else {
+    /// `apiKeyOverride` — same reasoning as ServerOpenRouter.defaultConfig:
+    /// ContentView.swift's in-app @AppStorage fields need a fallback path
+    /// that doesn't depend on the process environment (a plain icon tap
+    /// carries none of devicectl's -e vars).
+    static func defaultConfig(apiKeyOverride: String? = nil) throws -> Config {
+        let envKey = ProcessInfo.processInfo.environment["GEMINI_API_KEY"]
+        guard let key = [envKey, apiKeyOverride].compactMap({ $0 }).first(where: { !$0.isEmpty }) else {
             throw NSError(domain: "ServerGemini", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "GEMINI_API_KEY env var missing"])
+                          userInfo: [NSLocalizedDescriptionKey: "GEMINI_API_KEY env var missing and no key entered in app"])
         }
         let model = ProcessInfo.processInfo.environment["GEMINI_MODEL"] ?? "gemini-flash-lite-latest"
         let base = ProcessInfo.processInfo.environment["GEMINI_BASE_URL"] ?? "https://generativelanguage.googleapis.com/v1beta"
