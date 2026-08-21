@@ -78,7 +78,7 @@ enum EnglishPromptBuilder {
     private static let quoteRule = """
     Do NOT wrap your entire answer in quotes. Double quotes ("...") are ONLY for one specific sentence you suggest the parent say to the child, if any — everything else (explanation/context) stays unquoted outside that sentence.
 
-    The quoted sentence must sound casual and warm, like a real parent actually talking to their kid — NOT stiff or formal. Use contractions and casual terms of endearment (e.g. "sweetie", "honey"), not formal phrasing. Correct example: "Sweetie, I know that group project has been really tough." Wrong (too stiff): "I can see that the group project has been challenging for you."
+    This quoted sentence gets translated into Indonesian afterward, and translation tends to flatten anything even slightly formal into stiff, distant Indonesian ("Anda", "sepertinya", "saya dapat melihat bahwa..."). To survive that, write it MAXIMALLY simple and casual — short, plain, spoken-out-loud English, like texting a close friend, not writing a sentence. Always open with a term of endearment ("Sweetie," / "Honey," / "Hey kiddo,"). Never use distancing/clinical phrases like "I can see that...", "It sounds like...", or "I understand that...". Just say the plain thing directly. Correct: "Sweetie, I know that group project has been rough." Wrong (too formal, will translate stiff): "I can see that the group project has been challenging for you."
     """
 
     static func extractionPrompt(for log: EmotionLog) -> String {
