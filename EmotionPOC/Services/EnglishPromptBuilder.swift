@@ -76,9 +76,9 @@ enum EnglishPromptBuilder {
     /// Kept in sync with PromptBuilder.swift's quoteRule — same reasoning:
     /// HumanReadable.swift's QuoteAwareText splits on quoted spans.
     private static let quoteRule = """
-    Do NOT wrap your entire answer in quotes. Double quotes ("...") are ONLY for one specific sentence you suggest the parent say to the child, if any — everything else (explanation/context) stays unquoted outside that sentence.
+    Do NOT wrap your entire answer in quotes. Double quotes ("...") are ONLY for one specific sentence you suggest the parent say to the child — you MUST include exactly one, never zero — everything else (explanation/context) stays unquoted outside that sentence.
 
-    This quoted sentence gets translated into Indonesian afterward, and translation tends to flatten anything even slightly formal into stiff, distant Indonesian ("Anda", "sepertinya", "saya dapat melihat bahwa..."). To survive that, write it MAXIMALLY simple and casual — short, plain, spoken-out-loud English, like texting a close friend, not writing a sentence. Always open with a term of endearment ("Sweetie," / "Honey," / "Hey kiddo,"). Never use distancing/clinical phrases like "I can see that...", "It sounds like...", or "I understand that...". Just say the plain thing directly. Correct: "Sweetie, I know that group project has been rough." Wrong (too formal, will translate stiff): "I can see that the group project has been challenging for you."
+    ONLY inside that quoted sentence: sound casual and warm, like a real parent actually talking to their kid — short, plain, spoken-out-loud, not stiff or formal. Avoid distancing phrases like "I can see that..." or "It sounds like...". This casualness applies to the quoted sentence ONLY, not the rest of your answer, which stays as instructed elsewhere. Correct quote: "Sweetie, I know that group project has been rough." Wrong (too formal): "I can see that the group project has been challenging for you."
     """
 
     static func extractionPrompt(for log: EmotionLog) -> String {
