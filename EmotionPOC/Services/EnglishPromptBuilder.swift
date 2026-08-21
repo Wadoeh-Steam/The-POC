@@ -78,7 +78,7 @@ enum EnglishPromptBuilder {
     /// Kept in sync with PromptBuilder.swift's quoteRule — same reasoning:
     /// HumanReadable.swift's QuoteAwareText splits on quoted spans.
     private static let quoteRule = """
-    Include exactly one double-quoted sentence — a specific line the parent could say to the child, written casual and warm like real spoken language (not "I can see that...", more like "Sweetie, I know this has been rough"). Everything else in your answer stays unquoted — never wrap the whole answer in quotes.
+    Include exactly one complete double-quoted sentence (not a 2-3 word fragment) — a specific line the parent could say to the child, written casual and warm like real spoken language (not "I can see that...", more like "Sweetie, I know this has been rough"). Everything else in your answer stays unquoted — never wrap the whole answer in quotes.
     """
 
     static func extractionPrompt(for log: EmotionLog) -> String {

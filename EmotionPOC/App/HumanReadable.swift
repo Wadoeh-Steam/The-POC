@@ -270,22 +270,34 @@ struct QuoteAwareText: View {
     var maxTextChars: Int = .max
 
     var body: some View {
+        let segments = QuoteSegment.parse(text)
+
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(QuoteSegment.parse(text).enumerated()), id: \.offset) { _, segment in
-                switch segment {
-                case .text(let t):
-                    Text(truncatedText(t, maxChars: maxTextChars))
-                case .quote(let q):
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "quote.opening")
-                            .font(.caption2)
-                            .foregroundStyle(.blue)
-                        Text(q)
-                            .italic()
+            if segments.count == 1, case .quote(let whole) = segments[0] {
+                // The model wrapped its ENTIRE answer in one quote — not a
+                // usable highlighted excerpt (there's no narrative left to
+                // separate it from), just plain narrative that happens to
+                // have quote marks around it. Fall back rather than
+                // rendering one giant quote box (observed live,
+                // 2026-08-20: "semuanya adalah quotes").
+                Text(truncatedText(whole, maxChars: maxTextChars))
+            } else {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    switch segment {
+                    case .text(let t):
+                        Text(truncatedText(t, maxChars: maxTextChars))
+                    case .quote(let q):
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "quote.opening")
+                                .font(.caption2)
+                                .foregroundStyle(.blue)
+                            Text(q)
+                                .italic()
+                        }
+                        .padding(8)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .padding(8)
-                    .background(Color.blue.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
         }

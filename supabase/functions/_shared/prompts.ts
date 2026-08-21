@@ -119,7 +119,7 @@ function personalityRuleId(childName: string): string {
 // explicitly forbids wrapping the whole answer in quotes (observed live,
 // 2026-08-20: the model did exactly that on the first wording).
 const QUOTE_RULE_ID =
-  `Sertakan TEPAT satu kalimat dalam tanda kutip ganda — kalimat spesifik yang bisa diucapkan orang tua ke anak, casual dan hangat kayak orang tua asli ngomong ("aku"/"kamu", boleh "nak"/"sayang"/"mama tau"), BUKAN bahasa formal ("saya"/"Anda"). Sisanya tetap tanpa kutip — jangan bungkus seluruh jawabanmu dalam tanda kutip.`;
+  `Sertakan TEPAT satu kalimat lengkap (bukan potongan 2-3 kata) dalam tanda kutip ganda — kalimat spesifik yang bisa diucapkan orang tua ke anak, casual dan hangat kayak orang tua asli ngomong ("aku"/"kamu", boleh "nak"/"sayang"/"mama tau"), BUKAN bahasa formal ("saya"/"Anda"). Sisanya tetap tanpa kutip — jangan bungkus seluruh jawabanmu dalam tanda kutip.`;
 
 // ============================================================================
 // 1. Extraction + crisis-signal check (check-log-context, ARCHITECTURE.md §3a, §2b)

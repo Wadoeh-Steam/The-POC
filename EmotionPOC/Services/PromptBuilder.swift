@@ -149,7 +149,7 @@ enum PromptBuilder {
     /// the model already tends to quote suggested dialogue naturally, this
     /// just makes it consistent and intentional.
     private static let quoteRule = """
-    Sertakan TEPAT satu kalimat dalam tanda kutip ganda — kalimat spesifik yang bisa diucapkan orang tua ke anak, casual dan hangat kayak orang tua asli ngomong ("aku"/"kamu", boleh "nak"/"sayang"/"mama tau"), BUKAN bahasa formal ("saya"/"Anda"). Sisanya tetap tanpa kutip — jangan bungkus seluruh jawabanmu dalam tanda kutip.
+    Sertakan TEPAT satu kalimat lengkap (bukan potongan 2-3 kata) dalam tanda kutip ganda — kalimat spesifik yang bisa diucapkan orang tua ke anak, casual dan hangat kayak orang tua asli ngomong ("aku"/"kamu", boleh "nak"/"sayang"/"mama tau"), BUKAN bahasa formal ("saya"/"Anda"). Sisanya tetap tanpa kutip — jangan bungkus seluruh jawabanmu dalam tanda kutip.
     """
 
     // MARK: - 1. Extraction + crisis-signal check (check-log-context, ARCHITECTURE.md §3a, §2b)
