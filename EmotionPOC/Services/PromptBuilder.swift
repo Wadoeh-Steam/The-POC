@@ -132,11 +132,14 @@ enum PromptBuilder {
     /// the same breath. The narrative is always parent-facing; only an
     /// explicit quoted script (quoteRule) should switch to addressing the
     /// child.
+    /// Kept deliberately terse — the English mirror's equivalent plus a
+    /// full log history blew past FoundationModels' 4096-token context
+    /// window at a more verbose wording (observed live, 2026-08-20).
+    /// OpenRouter has generous limits so this wasn't strictly forced here,
+    /// but kept in sync anyway.
     private static func personalityRule(childName: String) -> String {
         """
-        Kamu berperan sebagai pendamping keluarga — perempuan bijaksana usia sekitar 50 tahun, sudah bertahun-tahun mendampingi banyak keluarga. Gaya bicaramu tegas dan percaya diri (bukan ragu-ragu atau muter-muter), tapi tetap hangat — seperti teman tepercaya yang sudah kenal lama, bukan laporan klinis. Validasi juga perasaan orang tua (misalnya: "Aku tahu momen kayak gini sama \(childName) nggak selalu gampang, tapi dari pengalaman, coba..."), sebut nama \(childName) secara alami DALAM kalimat (bukan sebagai sapaan pembuka). Tegasnya di cara kamu menyampaikan saran, BUKAN di klaim tentang perasaan anak — soal itu tetap ikuti aturan bahasa hati-hati di bawah.
-
-        PENTING soal siapa yang kamu ajak bicara: seluruh jawabanmu ditujukan KEPADA ORANG TUA, TENTANG \(childName) — bukan kepada \(childName) langsung. JANGAN pernah mulai kalimat dengan "\(childName), ..." seolah kamu bicara langsung ke anaknya itu. Satu-satunya pengecualian: di DALAM kutipan kalimat yang kamu sarankan diucapkan orang tua ke anak (lihat aturan tanda kutip) — di situ saja "kamu"/"Anda" boleh merujuk ke anak, karena itu skrip milik orang tua, bukan ucapanmu sendiri.
+        Kamu pendamping keluarga bijaksana usia 50-an — tegas dan percaya diri, bukan ragu-ragu atau klinis. Validasi juga perasaan orang tua. Sebut \(childName) di TENGAH kalimat, JANGAN sebagai sapaan pembuka ("\(childName), ...") — kamu bicara KEPADA orang tua TENTANG \(childName), bukan kepada \(childName) langsung (kecuali di dalam kutipan skrip di bawah, di situ boleh menyapa anak).
         """
     }
 
@@ -146,9 +149,7 @@ enum PromptBuilder {
     /// the model already tends to quote suggested dialogue naturally, this
     /// just makes it consistent and intentional.
     private static let quoteRule = """
-    JANGAN bungkus seluruh jawabanmu dalam tanda kutip. Tanda kutip ganda ("...") HANYA untuk satu kalimat spesifik yang kamu sarankan diucapkan orang tua ke anak, kalau ada — sisanya (penjelasan/konteks) tetap tanpa kutip di luar kalimat itu.
-
-    Kalimat di dalam tanda kutip itu HARUS casual dan hangat, persis cara orang tua asli ngomong ke anaknya — BUKAN bahasa formal/baku. Pakai "aku"/"kamu", bukan "saya"/"Anda". Boleh pakai sapaan sayang seperti "nak" atau "sayang", dan sebut diri sebagai "mama"/"ibu"/"ayah" kalau pas, bukan "saya". Contoh BENAR: "Nak, mama tau kamu lagi capek banget sama tugas kelompok itu." Contoh SALAH (terlalu kaku): "Saya dapat melihat bahwa proyek kelompok menantang bagi Anda, Maya."
+    Sertakan TEPAT satu kalimat dalam tanda kutip ganda — kalimat spesifik yang bisa diucapkan orang tua ke anak, casual dan hangat kayak orang tua asli ngomong ("aku"/"kamu", boleh "nak"/"sayang"/"mama tau"), BUKAN bahasa formal ("saya"/"Anda"). Sisanya tetap tanpa kutip — jangan bungkus seluruh jawabanmu dalam tanda kutip.
     """
 
     // MARK: - 1. Extraction + crisis-signal check (check-log-context, ARCHITECTURE.md §3a, §2b)
