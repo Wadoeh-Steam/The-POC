@@ -20,7 +20,10 @@ struct ContentView: View {
     @State private var availability: String = "checking..."
     @State private var comparisons: [TaskComparison] = []
     @State private var runningComparison = false
+    @State private var runningServerOnly = false
     @State private var console: [String] = []
+
+    private var running: Bool { runningComparison || runningServerOnly }
 
     // SwiftUI-driven translation test — the ONLY path that can trigger
     // Apple's system download-permission UI for a missing language pack.
@@ -74,8 +77,16 @@ struct ContentView: View {
                     Button(runningComparison ? "Sedang Menguji…" : "Mulai Tes Perbandingan") {
                         Task { await runComparison() }
                     }
-                    .disabled(runningComparison || dataset == nil)
+                    .disabled(running || dataset == nil)
                     Text("Menguji 4 skenario yang sama lewat Server dan lewat HP (on-device), lalu membandingkan kecepatan dan jawabannya.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Button(runningServerOnly ? "Sedang Tes Server…" : "Tes Server Saja") {
+                        Task { await runServerOnly() }
+                    }
+                    .disabled(running || dataset == nil)
+                    Text("Cuma jalur Server (OpenRouter) — lebih cepat buat cek ulang tanpa nunggu HP (on-device), nggak butuh paket bahasa ter-install.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -162,44 +173,64 @@ struct ContentView: View {
     /// ServerOpenRouter.defaultConfig) and the id↔en language pack already
     /// installed (via the Setup button above) for the on-device path.
     private func runComparison() async {
-        guard let dataset, !runningComparison else { return }
+        guard let dataset, !running else { return }
         runningComparison = true
         log("[comparison] starting")
 
-        var results = BenchmarkTask.allCases.map { TaskComparison(task: $0) }
-        comparisons = results
+        comparisons = BenchmarkTask.allCases.map { TaskComparison(task: $0) }
+        await runServerPass(dataset: dataset)
 
+        let session = LanguageModelSession(model: SystemLanguageModel.default)
+        for (i, task) in BenchmarkTask.allCases.enumerated() {
+            let r = await OnDeviceTranslationPipeline.run(task: task, data: dataset, session: session)
+            comparisons[i].translated = r
+            if r.ok {
+                log("[onDevice+translate] \(task.rawValue) → total=\(String(format: "%.0f", r.totalMs))ms")
+            } else {
+                log("[onDevice+translate] \(task.rawValue) → FAILED (\(r.error ?? "?"))")
+            }
+        }
+
+        log("[comparison] done")
+        runningComparison = false
+    }
+
+    /// Server-only path — skips the on-device+translate loop entirely, so
+    /// it doesn't need the id↔en language pack and is much faster to
+    /// re-run while iterating on server-side prompt wording (added
+    /// 2026-08-20 after many rounds of "just check the server output").
+    private func runServerOnly() async {
+        guard let dataset, !running else { return }
+        runningServerOnly = true
+        log("[server-only] starting")
+
+        if comparisons.isEmpty {
+            comparisons = BenchmarkTask.allCases.map { TaskComparison(task: $0) }
+        }
+        await runServerPass(dataset: dataset)
+
+        log("[server-only] done")
+        runningServerOnly = false
+    }
+
+    /// Shared by runComparison() and runServerOnly() — assumes `comparisons`
+    /// already has one entry per BenchmarkTask.
+    private func runServerPass(dataset: DummyDataset) async {
         do {
             let config = try ServerOpenRouter.defaultConfig()
             for (i, task) in BenchmarkTask.allCases.enumerated() {
                 let prompt = PromptBuilder.prompt(for: task, data: dataset)
                 do {
                     let r = try await ServerOpenRouter.generate(task: task, prompt: prompt, config: config)
-                    results[i].server = r
+                    comparisons[i].server = r
                     log(ServerOpenRouter.format(r))
                 } catch {
                     log("[openrouter:\(config.model)] \(task.rawValue) → FAILED (\(error))")
                 }
-                comparisons = results
             }
         } catch {
             log("[server] config failed: \(error)")
         }
-
-        let session = LanguageModelSession(model: SystemLanguageModel.default)
-        for (i, task) in BenchmarkTask.allCases.enumerated() {
-            let r = await OnDeviceTranslationPipeline.run(task: task, data: dataset, session: session)
-            results[i].translated = r
-            if r.ok {
-                log("[onDevice+translate] \(task.rawValue) → total=\(String(format: "%.0f", r.totalMs))ms")
-            } else {
-                log("[onDevice+translate] \(task.rawValue) → FAILED (\(r.error ?? "?"))")
-            }
-            comparisons = results
-        }
-
-        log("[comparison] done")
-        runningComparison = false
     }
 
     private func log(_ line: String) {
