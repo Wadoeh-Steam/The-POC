@@ -162,3 +162,215 @@ export function parseJsonResponse<T>(text: string): T {
     }
   }
 }
+
+// ============================================================================
+// Multi-provider fallback: OpenRouter -> Requesty -> Gemini
+//
+// Added for be1's evaluate-parent-log-followup, which sits in the child/
+// parent's real-time guided-journal write path and can't tolerate
+// OpenRouter's 50 req/day free-tier cap silently killing the feature with
+// no recourse. callLlm() above is untouched and still the only path for
+// existing callers (check-log-context, generate-overview, etc.) — this is
+// opt-in for new callers, not a replacement.
+//
+// Ports the fallback logic already verified live in the POC benchmark app
+// (ContentView.swift runServerPass, commit b873c63, 2026-08-21): cascade
+// on ANY failure (not just 429 — a provider being down or misconfigured
+// should fall through too), Requesty reuses the OpenAI-compatible request
+// shape (just a different baseURL/model/key, verified against
+// router.requesty.ai/v1), Gemini gets its own adapter since Google's API
+// shape is genuinely different (not OpenAI-compatible).
+// ============================================================================
+
+interface ProviderConfig {
+  name: string;
+  apiKey: string;
+  baseURL: string;
+  model: string;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callOpenAICompatible(
+  prompt: string,
+  opts: LlmCallOptions,
+  config: ProviderConfig,
+): Promise<LlmResult> {
+  const messages: { role: string; content: string }[] = [];
+  if (opts.systemPrompt) {
+    messages.push({ role: "system", content: opts.systemPrompt });
+  }
+  messages.push({ role: "user", content: prompt });
+
+  const body: Record<string, unknown> = {
+    model: config.model,
+    messages,
+    temperature: opts.temperature ?? 0.2,
+    max_tokens: opts.maxOutputTokens ?? 1024,
+  };
+  if (opts.jsonSchema) {
+    body.response_format = {
+      type: "json_schema",
+      json_schema: { name: opts.jsonSchema.name, strict: true, schema: opts.jsonSchema.schema },
+    };
+  }
+
+  const res = await fetch(`${config.baseURL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`${config.name} HTTP ${res.status} (model=${config.model}): ${errBody}`);
+  }
+
+  const data = await res.json();
+  const text = data?.choices?.[0]?.message?.content ?? "";
+  if (!text) {
+    throw new Error(`Empty response from ${config.name} (model=${config.model})`);
+  }
+
+  return {
+    text,
+    promptTokens: data?.usage?.prompt_tokens ?? 0,
+    outputTokens: data?.usage?.completion_tokens ?? 0,
+  };
+}
+
+/** Non-streaming generateContent — unlike ServerGemini.swift's benchmark
+ * client, this doesn't need TTFT measurement, so plain generateContent is
+ * simpler than SSE here. Gemini has no `/no_think`-style directive (that's
+ * Nemotron-specific); opts.systemPrompt is folded into the user turn as a
+ * harmless prefix rather than skipped, since Gemini has no separate system
+ * role for the flows that currently set it. */
+async function callGemini(
+  prompt: string,
+  opts: LlmCallOptions,
+  config: ProviderConfig,
+): Promise<LlmResult> {
+  const url = `${config.baseURL}/models/${config.model}:generateContent?key=${config.apiKey}`;
+  const text = opts.systemPrompt ? `${opts.systemPrompt}\n\n${prompt}` : prompt;
+  const body = {
+    contents: [{ role: "user", parts: [{ text }] }],
+    generationConfig: {
+      temperature: opts.temperature ?? 0.2,
+      maxOutputTokens: opts.maxOutputTokens ?? 1024,
+    },
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Gemini HTTP ${res.status} (model=${config.model}): ${errBody}`);
+  }
+
+  const data = await res.json();
+  const outText = (data?.candidates?.[0]?.content?.parts ?? [])
+    .map((p: { text?: string }) => p.text ?? "")
+    .join("");
+  if (!outText) {
+    throw new Error(`Empty response from Gemini (model=${config.model})`);
+  }
+
+  return {
+    text: outText,
+    promptTokens: data?.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: data?.usageMetadata?.candidatesTokenCount ?? 0,
+  };
+}
+
+/**
+ * Cascades OpenRouter -> Requesty -> Gemini. `totalBudgetMs` is a single
+ * wall-clock budget for the WHOLE chain, not per-provider — deliberate,
+ * since this is meant for real-time UX paths (guided-journal followup
+ * evaluation) where three sequential per-provider timeouts could stack
+ * into an unacceptable wait. Once the budget is exhausted, throws instead
+ * of trying remaining providers — caller decides what "give up" means
+ * (e.g. evaluate-parent-log-followup treats it as "skip the followup").
+ */
+export async function callLlmWithFallback(
+  prompt: string,
+  opts: LlmCallOptions,
+  totalBudgetMs: number,
+): Promise<LlmResult & { provider: string }> {
+  const deadline = Date.now() + totalBudgetMs;
+  const openAICompatibleProviders: ProviderConfig[] = [
+    {
+      name: "openrouter",
+      apiKey: Deno.env.get("OPENROUTER_API_KEY") ?? "",
+      baseURL: "https://openrouter.ai/api/v1",
+      model: opts.model,
+    },
+    {
+      name: "requesty",
+      apiKey: Deno.env.get("REQUESTY_API_KEY") ?? "",
+      baseURL: "https://router.requesty.ai/v1",
+      // Requesty's only free model with clean JSON-schema support,
+      // verified live against router.requesty.ai/v1/models (2026-08-21) —
+      // not opts.model, since that's an OpenRouter model id.
+      model: "mistral/leanstral-1-5",
+    },
+  ];
+
+  let lastError: unknown = new Error("no provider configured");
+
+  for (const config of openAICompatibleProviders) {
+    if (!config.apiKey) {
+      lastError = new Error(`${config.name}: no API key configured`);
+      continue;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error(`LLM fallback chain exceeded budget before trying ${config.name} (last error: ${lastError})`);
+    }
+    try {
+      const result = await withTimeout(callOpenAICompatible(prompt, opts, config), remaining);
+      return { ...result, provider: config.name };
+    } catch (e) {
+      lastError = e;
+      console.warn(`[llm-fallback] ${config.name} failed, trying next provider:`, e);
+    }
+  }
+
+  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+  const remaining = deadline - Date.now();
+  if (geminiKey && remaining > 0) {
+    const geminiConfig: ProviderConfig = {
+      name: "gemini",
+      apiKey: geminiKey,
+      baseURL: "https://generativelanguage.googleapis.com/v1beta",
+      model: Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-lite-latest",
+    };
+    try {
+      const result = await withTimeout(callGemini(prompt, opts, geminiConfig), remaining);
+      return { ...result, provider: "gemini" };
+    } catch (e) {
+      lastError = e;
+      console.warn("[llm-fallback] gemini failed:", e);
+    }
+  } else if (!geminiKey) {
+    lastError = new Error(`gemini: no API key configured (previous: ${lastError})`);
+  }
+
+  throw new Error(`All LLM providers failed or unavailable: ${lastError}`);
+}
