@@ -4,7 +4,7 @@
 
 import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { callLlm, parseJsonResponse } from "../_shared/llm.ts";
+import { callLlmWithFallback, parseJsonResponse } from "../_shared/llm.ts";
 import {
   buildReflectionPrompt,
   type EmotionLogForPrompt,
@@ -115,7 +115,7 @@ Deno.serve(async (req: Request) => {
       childProfile?.display_name ?? "anak",
     );
 
-    const result = await callLlm(prompt, {
+    const result = await callLlmWithFallback(prompt, {
       model: Deno.env.get("OPENROUTER_MODEL_REFLECTION") ?? DEFAULT_MODEL,
       jsonSchema: REFLECTION_JSON_SCHEMA,
       // "/no_think" (llm.ts) — this task specifically had been answering
@@ -126,7 +126,7 @@ Deno.serve(async (req: Request) => {
       // watching, not proof the language bug is gone for good.
       systemPrompt: "/no_think",
       maxOutputTokens: 6000,
-    });
+    }, 20000); // user-initiated but not real-time — same budget as generate-overview
     const parsed = parseJsonResponse<ReflectionResult>(result.text);
 
     const { data: inserted, error: insertError } = await supabase

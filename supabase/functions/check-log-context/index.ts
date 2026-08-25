@@ -10,7 +10,7 @@
 
 import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { callLlm, parseJsonResponse } from "../_shared/llm.ts";
+import { callLlmWithFallback, parseJsonResponse } from "../_shared/llm.ts";
 import {
   buildExtractionPrompt,
   EXTRACTION_JSON_SCHEMA,
@@ -74,7 +74,7 @@ Deno.serve(async (req: Request) => {
       journal: body.journal ?? null,
     });
 
-    const result = await callLlm(prompt, {
+    const result = await callLlmWithFallback(prompt, {
       model: Deno.env.get("OPENROUTER_MODEL_EXTRACTION") ?? DEFAULT_MODEL,
       jsonSchema: EXTRACTION_JSON_SCHEMA,
       // "/no_think" (see llm.ts) cut this call from ~36s to ~2-7s in
@@ -93,7 +93,7 @@ Deno.serve(async (req: Request) => {
       // headroom (0 reasoning tokens observed with /no_think), but left
       // generous since it's free and costs nothing to keep as a buffer.
       maxOutputTokens: 4000,
-    });
+    }, 6000); // write-path latency budget, same class as evaluate-parent-log-followup's 5s
     const parsed = parseJsonResponse<ExtractionResult>(result.text);
 
     return jsonResponse({
