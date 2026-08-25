@@ -56,7 +56,15 @@ Deno.serve(async (req: Request) => {
     .select("role, family_id")
     .eq("id", user.id)
     .single();
-  if (!callerProfile || callerProfile.role !== "parent" || callerProfile.family_id !== body.family_id) {
+  // Case-insensitive: Postgres returns UUIDs lowercase, but clients (e.g.
+  // Swift's UUID.uuidString) commonly send them uppercase — a bare `!==`
+  // here rejects every request from such a client even when the family_id
+  // is actually correct. Found live (2026-08-25) testing be1 end-to-end.
+  if (
+    !callerProfile ||
+    callerProfile.role !== "parent" ||
+    callerProfile.family_id.toLowerCase() !== body.family_id.toLowerCase()
+  ) {
     return jsonResponse({ error: "forbidden" }, 403);
   }
 
