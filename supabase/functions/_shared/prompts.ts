@@ -234,15 +234,43 @@ export interface OverviewResult {
   overview: {
     headline: string;
     summary: string;
-    patterns: { topic: string; observation: string }[];
+    patterns: { topic: string; observation: string; suggested_approach: string }[];
     relationship_signal: {
       parent_concern: "low" | "moderate" | "high";
       child_openness: "low" | "moderate" | "high";
       possible_misalignment: boolean;
     };
+    communication_style: {
+      detected_pattern: "bald_on_record" | "autonomy_supportive" | "unclear";
+      example_before: string | null;
+      example_after: string | null;
+    };
     key_insight: string;
   };
 }
+
+// Self-Determination Theory, translated into a concrete rule the model can
+// follow: acknowledge the child's feeling BEFORE the parent's own
+// perspective, and prefer language that leaves the child a choice over
+// direct commands. "Bald-on-record speech" (Brown & Levinson) is the
+// pattern being screened for in the parent's own logged interactions —
+// direct imperatives that attack the child's autonomy ("kamu harus...",
+// "pokoknya wajib..."). Decision to change the overview from purely
+// descriptive to this more directive coaching format: 2026-08-25 — see
+// context.md, supersedes the earlier "stays descriptive" call.
+const AUTONOMY_SUPPORTIVE_RULE_ID =
+  `Untuk "suggested_approach" dan "communication_style": dasarkan pada Self-Determination Theory — anak perlu merasa otonom (bukan dikontrol), bukan berarti dibiarkan tanpa arahan. \
+Prinsip utama: akui dulu perasaan anak secara eksplisit SEBELUM masuk ke perspektif/harapan orang tua — jangan langsung kasih nasihat satu arah. \
+Kalau di catatan interaksi orang tua ada kalimat yang sifatnya perintah langsung/bald-on-record (menyerang otonomi anak — misal "kamu harus...", "pokoknya kamu wajib...", "jangan bantah, lakukan aja"), set detected_pattern = "bald_on_record", kutip kalimat aslinya (atau parafrase dekat) di example_before, dan tulis versi non-controlling-nya di example_after — ganti perintah langsung jadi kalimat yang kasih ruang pilihan (contoh: "kamu harus beresin kamar sekarang" -> "mungkin lebih enak kalau kamarnya dirapiin sebelum makan malam, gimana?"). Kalau nggak ada indikasi jelas di data yang ada, detected_pattern = "unclear" — JANGAN memaksakan contoh yang tidak benar-benar ada di catatan — dan example_before/example_after diisi null.`;
+
+// Presenting patterns as data rather than verdicts is deliberate: parents
+// are naturally invested and struggle to evaluate their own choices
+// objectively, and in high power-distance cultures (Indonesia's PDI = 78)
+// tend to default to demanding obedience when they feel judged. Framing as
+// "pola yang tercatat" rather than "kamu selalu..." is meant to route
+// around that defensive reaction, not soften the finding itself.
+const DATA_NOT_JUDGMENT_RULE_ID =
+  `Sajikan setiap "observation" sebagai POLA DARI DATA yang tercatat, bukan penilaian ke orang tua. Bukan "kamu terlalu memaksa soal beres-beres", tapi "pola yang tercatat: percakapan soal beres-beres di hari Kamis cenderung diikuti penurunan mood anak". Kalau ada pola waktu/hari/topik yang jelas kelihatan dari data, sebutkan spesifik (hari, topik) — itu yang bikin suggested_approach kerasa actionable, bukan generik. Jangan mengarang pola yang tidak benar-benar didukung datanya.`;
 
 export function buildOverviewPrompt(
   logs: EmotionLogForPrompt[],
@@ -251,7 +279,7 @@ export function buildOverviewPrompt(
   childName: string,
 ): string {
   const name = firstName(childName);
-  return `Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati.
+  return `Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi, DAN memberi penyesuaian komunikasi yang konkret, spesifik, dan low-effort untuk minggu ini. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati, dan pindah dari nasihat satu arah ke memvalidasi perasaan anak dulu.
 
 Catatan emosi anak (minggu terakhir):
 ${compactLogs(logs)}
@@ -266,12 +294,21 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
     "headline": "<1 kalimat pendek, maks 10 kata, hati-hati>",
     "summary": "<1-2 kalimat singkat tentang pola keseluruhan, hati-hati>",
     "patterns": [
-      { "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya", "observation": "<1 kalimat pendek, hati-hati>" }
+      {
+        "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya",
+        "observation": "<1 kalimat pendek, hati-hati, sespesifik data-nya — sebut hari/konteks kalau polanya jelas>",
+        "suggested_approach": "<1 kalimat: penyesuaian komunikasi konkret buat pola ini minggu depan, mulai dengan mengakui perasaan anak dulu>"
+      }
     ],
     "relationship_signal": {
       "parent_concern": "low|moderate|high",
       "child_openness": "low|moderate|high",
       "possible_misalignment": true
+    },
+    "communication_style": {
+      "detected_pattern": "bald_on_record|autonomy_supportive|unclear",
+      "example_before": "<kutipan/parafrase dekat dari catatan orang tua, atau null>",
+      "example_after": "<versi non-controlling-nya, atau null>"
     },
     "key_insight": "<1 kalimat pendek yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta>"
   }
@@ -281,6 +318,8 @@ Aturan:
 - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
 - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
+- ${AUTONOMY_SUPPORTIVE_RULE_ID}
+- ${DATA_NOT_JUDGMENT_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
 - ${QUOTE_RULE_ID}
 - Pertimbangkan perspektif anak maupun orang tua.
@@ -304,8 +343,9 @@ export const OVERVIEW_JSON_SCHEMA = {
               properties: {
                 topic: { type: "string" },
                 observation: { type: "string" },
+                suggested_approach: { type: "string" },
               },
-              required: ["topic", "observation"],
+              required: ["topic", "observation", "suggested_approach"],
               additionalProperties: false,
             },
           },
@@ -319,9 +359,19 @@ export const OVERVIEW_JSON_SCHEMA = {
             required: ["parent_concern", "child_openness", "possible_misalignment"],
             additionalProperties: false,
           },
+          communication_style: {
+            type: "object",
+            properties: {
+              detected_pattern: { type: "string", enum: ["bald_on_record", "autonomy_supportive", "unclear"] },
+              example_before: { type: ["string", "null"] },
+              example_after: { type: ["string", "null"] },
+            },
+            required: ["detected_pattern", "example_before", "example_after"],
+            additionalProperties: false,
+          },
           key_insight: { type: "string" },
         },
-        required: ["headline", "summary", "patterns", "relationship_signal", "key_insight"],
+        required: ["headline", "summary", "patterns", "relationship_signal", "communication_style", "key_insight"],
         additionalProperties: false,
       },
     },
@@ -398,6 +448,77 @@ export const REFLECTION_JSON_SCHEMA = {
       },
     },
     required: ["recommendations"],
+    additionalProperties: false,
+  },
+};
+
+// ============================================================================
+// 5. Guided journal follow-up evaluation (evaluate-parent-log-followup, be1)
+//
+// Deliberately NOT the LogContextField/ExtractionResult mechanism above —
+// that stays untouched for check-log-context. This mechanism's trigger is
+// presence/absence of "cognitive mechanism" words (causal + insight
+// language), per Baikie & Wilhelm 2005 (expressive writing / LIWC
+// categories): participants who moved from "I was overwhelmed" to "I was
+// overwhelmed because the deadline moved" showed more benefit than those
+// who stayed at the bare feeling statement. crisis_signal is kept for
+// schema consistency with the extraction shape above, but its handling on
+// the parent-log path is backlogged (not wired to crisis_events yet) —
+// see context.md.
+// ============================================================================
+
+export interface FollowupEvaluationResult {
+  has_cognitive_mechanism: boolean;
+  followup_question: string | null;
+  crisis_signal: boolean;
+}
+
+const COGNITIVE_MECHANISM_RULE_ID =
+  `"Cognitive mechanism words" adalah kata-kata sebab-akibat (karena, sebab, gara-gara, makanya, akibatnya) atau kata pemahaman/insight (jadi sadar, baru ngeh, ternyata, jadi paham, jadi ngerti, akhirnya nyadar) yang nunjukin penulis udah mikirin KENAPA sesuatu terjadi, bukan cuma nyebutin APA yang terjadi/dirasain. \
+Contoh TANPA cognitive mechanism words (masih dangkal, cuma nyebut perasaan): "Aku capek banget hari ini." / "Hari ini seru sih." \
+Contoh DENGAN cognitive mechanism words (udah ada penjelasan/pemahaman): "Aku capek banget hari ini karena kerjaan numpuk terus deadline-nya maju." / "Hari ini seru soalnya akhirnya ketemu temen lama, jadi baru sadar aku kangen banget."`;
+
+export function buildFollowupEvaluationPrompt(
+  questionText: string,
+  answerText: string,
+): string {
+  return `Kamu membantu mengevaluasi jawaban dari sebuah guided journal (catatan reflektif harian).
+
+Pertanyaan yang diajukan:
+"${questionText}"
+
+Jawaban orang yang mengisi:
+"${answerText}"
+
+${COGNITIVE_MECHANISM_RULE_ID}
+
+Tugas 1 — Evaluasi:
+Tentukan apakah jawaban di atas SUDAH mengandung cognitive mechanism words (sebab-akibat/insight) atau BELUM.
+
+Tugas 2 — Follow-up (hanya jika Tugas 1 = belum ada):
+Kalau jawabannya masih dangkal (belum ada cognitive mechanism words), buat SATU pertanyaan follow-up singkat dan casual (bukan formal, bahasa sehari-hari Indonesia) yang ngajak orangnya cerita lebih jauh soal "kenapa" atau "apa yang bikin gitu" — spesifik nyambung ke jawaban dia, bukan pertanyaan generik "kenapa?" doang. Kalau jawaban SUDAH mengandung cognitive mechanism words, isi null di sini — jangan tetap kasih pertanyaan.
+
+Tugas 3 — Sinyal krisis:
+Tandai true HANYA jika jawaban menunjukkan indikasi serius menyakiti diri sendiri, keinginan bunuh diri, atau bahaya langsung terhadap keselamatan. Jangan tandai true untuk emosi negatif biasa (capek, sedih, stres) — hanya untuk sinyal krisis yang jelas.
+
+Output HARUS JSON valid, tanpa markdown, persis bentuk ini:
+{
+  "has_cognitive_mechanism": true or false,
+  "followup_question": "<pertanyaan follow-up singkat, atau null kalau has_cognitive_mechanism true>",
+  "crisis_signal": true or false
+}`;
+}
+
+export const FOLLOWUP_EVALUATION_JSON_SCHEMA = {
+  name: "followup_evaluation",
+  schema: {
+    type: "object",
+    properties: {
+      has_cognitive_mechanism: { type: "boolean" },
+      followup_question: { type: ["string", "null"] },
+      crisis_signal: { type: "boolean" },
+    },
+    required: ["has_cognitive_mechanism", "followup_question", "crisis_signal"],
     additionalProperties: false,
   },
 };

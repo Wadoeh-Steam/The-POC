@@ -138,6 +138,7 @@ Deno.serve(async (req: Request) => {
         summary: parsed.overview.summary,
         patterns: parsed.overview.patterns,
         relationship_signal: parsed.overview.relationship_signal,
+        communication_style: parsed.overview.communication_style,
         key_insight: parsed.overview.key_insight,
         raw_response: { promptTokens: result.promptTokens, outputTokens: result.outputTokens },
       })

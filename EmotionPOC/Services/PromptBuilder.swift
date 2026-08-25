@@ -152,6 +152,29 @@ enum PromptBuilder {
     Sertakan TEPAT satu kalimat lengkap (bukan potongan 2-3 kata) dalam tanda kutip ganda — kalimat spesifik yang bisa diucapkan orang tua ke anak, casual dan hangat kayak orang tua asli ngomong ("aku"/"kamu", boleh "nak"/"sayang"/"mama tau"), BUKAN bahasa formal ("saya"/"Anda"). Sisanya tetap tanpa kutip — jangan bungkus seluruh jawabanmu dalam tanda kutip.
     """
 
+    /// Self-Determination Theory, translated into a concrete rule the model
+    /// can follow: acknowledge the child's feeling BEFORE the parent's own
+    /// perspective, prefer language that leaves the child a choice over
+    /// direct commands. "Bald-on-record speech" (Brown & Levinson) is
+    /// screened for in the parent's own logged interactions. Decision to
+    /// move the overview from purely descriptive to this more directive
+    /// coaching format: 2026-08-25 — see context.md, supersedes the
+    /// earlier "stays descriptive" call. Kept in sync with prompts.ts's
+    /// AUTONOMY_SUPPORTIVE_RULE_ID.
+    private static let autonomySupportiveRule = """
+    Untuk "suggested_approach" dan "communication_style": dasarkan pada Self-Determination Theory — anak perlu merasa otonom (bukan dikontrol), bukan berarti dibiarkan tanpa arahan. Prinsip utama: akui dulu perasaan anak secara eksplisit SEBELUM masuk ke perspektif/harapan orang tua — jangan langsung kasih nasihat satu arah. Kalau di catatan interaksi orang tua ada kalimat yang sifatnya perintah langsung/bald-on-record (menyerang otonomi anak — misal "kamu harus...", "pokoknya kamu wajib...", "jangan bantah, lakukan aja"), set detected_pattern = "bald_on_record", kutip kalimat aslinya (atau parafrase dekat) di example_before, dan tulis versi non-controlling-nya di example_after — ganti perintah langsung jadi kalimat yang kasih ruang pilihan (contoh: "kamu harus beresin kamar sekarang" -> "mungkin lebih enak kalau kamarnya dirapiin sebelum makan malam, gimana?"). Kalau nggak ada indikasi jelas di data yang ada, detected_pattern = "unclear" — JANGAN memaksakan contoh yang tidak benar-benar ada di catatan — dan example_before/example_after diisi null.
+    """
+
+    /// Parents are naturally invested and struggle to evaluate their own
+    /// choices objectively, and in high power-distance cultures (Indonesia's
+    /// PDI = 78) tend to default to demanding obedience when they feel
+    /// judged. Framing as "pola yang tercatat" rather than "kamu selalu..."
+    /// routes around that defensive reaction. Kept in sync with prompts.ts's
+    /// DATA_NOT_JUDGMENT_RULE_ID.
+    private static let dataNotJudgmentRule = """
+    Sajikan setiap "observation" sebagai POLA DARI DATA yang tercatat, bukan penilaian ke orang tua. Bukan "kamu terlalu memaksa soal beres-beres", tapi "pola yang tercatat: percakapan soal beres-beres di hari Kamis cenderung diikuti penurunan mood anak". Kalau ada pola waktu/hari/topik yang jelas kelihatan dari data, sebutkan spesifik (hari, topik) — itu yang bikin suggested_approach kerasa actionable, bukan generik. Jangan mengarang pola yang tidak benar-benar didukung datanya.
+    """
+
     // MARK: - 1. Extraction + crisis-signal check (check-log-context, ARCHITECTURE.md §3a, §2b)
 
     static func extractionPrompt(for log: EmotionLog) -> String {
@@ -212,7 +235,7 @@ enum PromptBuilder {
 
     static func overviewPrompt(_ data: DummyDataset) -> String {
         """
-        Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati.
+        Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi, DAN memberi penyesuaian komunikasi yang konkret, spesifik, dan low-effort untuk minggu ini. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati, dan pindah dari nasihat satu arah ke memvalidasi perasaan anak dulu.
 
         Catatan emosi anak (minggu terakhir):
         \(compactLogs(data))
@@ -227,12 +250,21 @@ enum PromptBuilder {
             "headline": "<1 kalimat pendek, maks 10 kata, hati-hati>",
             "summary": "<1-2 kalimat singkat tentang pola keseluruhan, hati-hati>",
             "patterns": [
-              { "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya", "observation": "<1 kalimat pendek, hati-hati>" }
+              {
+                "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya",
+                "observation": "<1 kalimat pendek, hati-hati, sespesifik data-nya — sebut hari/konteks kalau polanya jelas>",
+                "suggested_approach": "<1 kalimat: penyesuaian komunikasi konkret buat pola ini minggu depan, mulai dengan mengakui perasaan anak dulu>"
+              }
             ],
             "relationship_signal": {
               "parent_concern": "low|moderate|high",
               "child_openness": "low|moderate|high",
               "possible_misalignment": true
+            },
+            "communication_style": {
+              "detected_pattern": "bald_on_record|autonomy_supportive|unclear",
+              "example_before": "<kutipan/parafrase dekat dari catatan orang tua, atau null>",
+              "example_after": "<versi non-controlling-nya, atau null>"
             },
             "key_insight": "<1 kalimat pendek yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta>"
           }
@@ -242,6 +274,8 @@ enum PromptBuilder {
         - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
         - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
         - \(cautiousLanguageRule)
+        - \(autonomySupportiveRule)
+        - \(dataNotJudgmentRule)
         - \(personalityRule(childName: firstName(data.child.name))) (berlaku untuk summary dan key_insight)
         - \(quoteRule)
         - Pertimbangkan perspektif anak maupun orang tua.
