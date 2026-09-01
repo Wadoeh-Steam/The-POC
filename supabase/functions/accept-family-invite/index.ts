@@ -1,6 +1,6 @@
 // accept-family-invite — ARCHITECTURE.md §3b, §4.
 // Called right after a newly-invited child completes auth, carrying the
-// invite token from the emailed link. Service-role: the invitee has no
+// invite token from the shared link. Service-role: the invitee has no
 // profiles row yet, so there's no RLS path that would let them create one
 // themselves — validating the token IS the authorization check here, done
 // entirely inside this function rather than via RLS.
@@ -54,12 +54,10 @@ Deno.serve(async (req: Request) => {
     await admin.from("invites").update({ status: "expired" }).eq("id", invite.id);
     return jsonResponse({ error: "invite_expired" }, 409);
   }
-  // The invite was for a specific email — require it to match the
-  // authenticated user's, so a valid-but-guessed token can't be redeemed
-  // by whoever happens to hold it. (Sign in with Apple's private-relay
-  // email still satisfies this, since the child authenticates with
-  // whatever email they used to receive the invite in the first place.)
-  if (invite.invited_email.toLowerCase() !== (user.email ?? "").toLowerCase()) {
+  if (
+    invite.invited_email &&
+    invite.invited_email.toLowerCase() !== (user.email ?? "").toLowerCase()
+  ) {
     return jsonResponse({ error: "email_mismatch" }, 403);
   }
 

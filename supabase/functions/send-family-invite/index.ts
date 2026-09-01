@@ -1,9 +1,4 @@
-// send-family-invite — ARCHITECTURE.md §3b. The half of the invite flow
-// that was missing from the initial pass: this is what actually creates
-// the invites row (with a server-generated token — not client-supplied,
-// see the comment on the removed invites INSERT policy in the RLS
-// migration) and sends the email via Supabase Auth's admin
-// inviteUserByEmail, which only the service role can call.
+// send-family-invite — ARCHITECTURE.md §3b.
 //
 // Companion to accept-family-invite (which redeems the token this
 // function mints).
@@ -11,11 +6,21 @@
 import { createAdminClient, createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
-interface RequestBody {
-  invited_email: string;
-}
+const INVITE_EXPIRY_DAYS = 7;
 
-const INVITE_EXPIRY_DAYS = 7; // Placeholder — ARCHITECTURE.md §7 open item, not finalized.
+const INVITE_MESSAGE_TEMPLATES = [
+  "Aku lagi coba journaling reflektif buat lebih ngerti gimana kita komunikasi selama ini. " +
+    "Kalau kamu penasaran atau mau coba versi kamu sendiri, klik aja link ini — nggak ada tekanan, kapan pun kamu siap.",
+  "Belakangan aku mulai nyoba nulis reflektif soal gimana kita ngobrol selama ini. " +
+    "Kalau kamu mau ikut coba versi kamu sendiri, ini linknya — santai aja, gak perlu buru-buru.",
+  "Aku lagi belajar lebih peka soal cara aku komunikasi ke kamu. " +
+    "Kalau kamu tertarik nyoba versi kamu sendiri, klik link ini ya — nggak ada paksaan, kapan pun kamu mau.",
+];
+
+function pickInviteMessage(): string {
+  const i = Math.floor(Math.random() * INVITE_MESSAGE_TEMPLATES.length);
+  return INVITE_MESSAGE_TEMPLATES[i];
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -28,14 +33,6 @@ Deno.serve(async (req: Request) => {
   const userClient = createUserClient(authHeader);
   const { data: { user }, error: authError } = await userClient.auth.getUser();
   if (authError || !user) return jsonResponse({ error: "Unauthorized" }, 401);
-
-  let body: RequestBody;
-  try {
-    body = await req.json();
-  } catch {
-    return jsonResponse({ error: "Invalid JSON body" }, 400);
-  }
-  if (!body.invited_email) return jsonResponse({ error: "invited_email is required" }, 400);
 
   const { data: callerProfile } = await userClient
     .from("profiles")
@@ -55,7 +52,6 @@ Deno.serve(async (req: Request) => {
     .from("invites")
     .insert({
       family_id: callerProfile.family_id,
-      invited_email: body.invited_email,
       invited_role: "child",
       invited_by: user.id,
       token,
@@ -69,27 +65,15 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "invite_creation_failed" }, 500);
   }
 
-  // Deep-link redirect: the child's device needs to land back in the app
-  // (not a browser) after clicking the email link, carrying the token.
-  // EMOTIONPOC_APP_REDIRECT_URL should be a configured universal link /
-  // custom URL scheme — set as an Edge Function secret, not hardcoded
-  // here, since it likely differs between TestFlight/App Store builds.
   const redirectBase = Deno.env.get("EMOTIONPOC_APP_REDIRECT_URL") ??
     "emotionpoc://accept-invite";
-  const redirectTo = `${redirectBase}?token=${token}`;
+  const inviteUrl = `${redirectBase}?token=${token}`;
 
-  const { error: emailError } = await admin.auth.admin.inviteUserByEmail(
-    body.invited_email,
-    { data: { invite_token: token }, redirectTo },
-  );
-
-  if (emailError) {
-    // Invite row already exists — leave it as 'pending' rather than
-    // rolling back, so a retry (or resend, once that's built — §7 open
-    // item) doesn't need to recreate it from scratch.
-    console.error("send-family-invite: inviteUserByEmail failed", emailError);
-    return jsonResponse({ error: "email_send_failed", invite_id: invite.id }, 502);
-  }
-
-  return jsonResponse({ ok: true, invite_id: invite.id, expires_at: invite.expires_at });
+  return jsonResponse({
+    ok: true,
+    invite_id: invite.id,
+    invite_url: inviteUrl,
+    invite_message: pickInviteMessage(),
+    expires_at: invite.expires_at,
+  });
 });

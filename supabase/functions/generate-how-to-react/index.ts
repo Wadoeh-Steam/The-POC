@@ -11,7 +11,7 @@
 
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 import { jsonResponse } from "../_shared/cors.ts";
-import { callLlm } from "../_shared/llm.ts";
+import { callLlmWithFallback } from "../_shared/llm.ts";
 import {
   buildHowToReactPrompt,
   type EmotionLogForPrompt,
@@ -97,7 +97,7 @@ Deno.serve(async (req: Request) => {
   };
 
   try {
-    const result = await callLlm(buildHowToReactPrompt(logForPrompt, profile.display_name), {
+    const result = await callLlmWithFallback(buildHowToReactPrompt(logForPrompt, profile.display_name), {
       model: Deno.env.get("OPENROUTER_MODEL_HOW_TO_REACT") ?? DEFAULT_MODEL,
       // "/no_think" (llm.ts) — see check-log-context's comment. Testing
       // (PERFORMANCE_COMPARISON.md §8) also fixed an unrelated bug this
@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
       // not just latency.
       systemPrompt: "/no_think",
       maxOutputTokens: 3000,
-    });
+    }, 20000); // webhook-triggered, no live user waiting — same budget as generate-overview
 
     const { error: insertError } = await supabase.from("how_to_react_tips").insert({
       emotion_log_id: record.id,

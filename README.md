@@ -113,6 +113,75 @@ For anyone with Xcode who wants to try the test harness themselves:
    Indonesian↔English language pack installed once — the app has a button
    for that on first run.
 
+## Using the backend (Edge Functions) directly
+
+The 11 Edge Functions live in `supabase/functions/` and are deployed to the
+shared test project `asjznymcuyzafodpkmgg` — the same instance the POC
+harness above and the real iOS client (`ios-client` repo) both talk to,
+there's only one backend. Full endpoint-by-endpoint description is
+[ARCHITECTURE.md §4](ARCHITECTURE.md#4-api-surface); this section is just
+the practical "how do I actually call one" — useful for testing a change
+without going through the app UI at all.
+
+**Secrets** (`supabase secrets set` / `--project-ref asjznymcuyzafodpkmgg`,
+ask Radit for values — never put these in a repo file):
+`OPENROUTER_API_KEY`, `REQUESTY_API_KEY`, `GEMINI_API_KEY`. Every LLM call
+in this codebase goes through `_shared/llm.ts`'s `callLlmWithFallback()` —
+cascades OpenRouter → Requesty → Gemini on any failure, one wall-clock
+budget for the whole chain (not per-provider). If a function starts
+returning 502s, check `supabase functions list --project-ref
+asjznymcuyzafodpkmgg` deployed OK first, then suspect OpenRouter's 50
+req/day free-tier cap before assuming a code bug — this has happened.
+
+**Getting a test JWT** — none of the Edge Functions accept the
+anon/publishable key alone, they all require a real signed-in user (they
+call `auth.getUser()`). Sign in as an existing test user:
+
+```bash
+curl -X POST 'https://asjznymcuyzafodpkmgg.supabase.co/auth/v1/token?grant_type=password' \
+  -H "apikey: <publishable_key>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"<test-user-email>","password":"<password>"}'
+```
+
+Take `access_token` from the response — it expires in 1 hour
+(`expires_in: 3600`), re-run the above to get a fresh one. Need a test user
+in the first place? Dashboard → Authentication → Users → **Add user** →
+"Create new user" (check "Auto Confirm User") — then give that user a
+`profiles` row (Table Editor or SQL Editor) with a `family_id` and
+`role = 'parent'`, since most functions check that row, not just that
+auth succeeded.
+
+**Calling a function**:
+
+```bash
+curl -X POST 'https://asjznymcuyzafodpkmgg.supabase.co/functions/v1/select-parent-log-questions' \
+  -H "apikey: <publishable_key>" \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"valence": 0.5, "valence_classification": "positive"}'
+```
+
+Same pattern for the other two be1 functions
+(`evaluate-parent-log-followup` takes `{question_text, answer_text}`;
+`submit-parent-log-entry` takes `{family_id, valence, labels,
+associations, answers}` — see each function's `index.ts` for the exact
+shape) and for the pre-existing ones (`generate-overview`/
+`generate-reflection` take `{family_id}`, `check-log-context` takes
+`{valence, labels, associations, journal}`).
+
+**After a migration or function change**, from this repo's root:
+```bash
+supabase db push --project-ref asjznymcuyzafodpkmgg
+supabase functions deploy <name> --project-ref asjznymcuyzafodpkmgg
+```
+`supabase migration list --project-ref asjznymcuyzafodpkmgg` shows
+local-vs-remote drift before you push — if it reports a remote migration
+version with no local file, stop and figure out where that came from
+before proceeding (don't `migration repair` blind — it only edits the
+tracking table, not the schema itself, see the git log around
+2026-08-25 for a real instance of this).
+
 ## Things worth remembering
 
 - All the experiments above use **sample (dummy) data**, not real families'

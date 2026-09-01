@@ -4,11 +4,12 @@ import FoundationModels
 /// The actual workaround for §2a's on-device blocker: Apple Intelligence
 /// doesn't support Indonesian generation, so this runs the *English*
 /// prompts (EnglishPromptBuilder.swift) through FoundationModels, then
-/// translates only the free-text output fields back to Indonesian with
-/// OnDeviceTranslator — leaving structural/enum fields (e.g.
-/// `relationship_signal.parent_concern: low|moderate|high`) untouched,
-/// since those are meant for the app's own logic, not for a parent to
-/// read as prose.
+/// translates the JSON output back to Indonesian with OnDeviceTranslator —
+/// every String leaf gets translated except a small set of known enum/
+/// classifier literals (e.g. `relationship_signal.parent_concern:
+/// low|moderate|high`), which are for the app's own logic, not prose a
+/// parent reads. User-facing output must always be Bahasa Indonesia, same
+/// as the server (OpenRouter) path, which prompts in Indonesian directly.
 ///
 /// Confirmed viable 2026-08-16 (PERFORMANCE_COMPARISON.md §8f) once the
 /// id↔en language pack is installed on-device — this pipeline is what
@@ -56,7 +57,61 @@ enum OnDeviceTranslationPipeline {
         }
     }
 
-    // MARK: - Selective output translation
+    // MARK: - Output translation
+
+    /// Object keys whose value must survive untouched — these are for the
+    /// app's own logic (rendered via the app's own localized labels), not
+    /// prose a parent reads. Checked by KEY, not by matching the value
+    /// against a known literal: FoundationModels is called with plain
+    /// `GenerationOptions()` (no `@Generable`/JSON-schema constraint, unlike
+    /// the OpenRouter path's `response_format`/`json_schema` in
+    /// _shared/llm.ts), so its casing/spelling for an enum value isn't
+    /// guaranteed — a value-based skip-list (e.g. matching "bald_on_record"
+    /// exactly) would translate a drifted "Bald_on_record" and corrupt a
+    /// value the client switches on. A key-based skip is correct regardless
+    /// of what the model actually outputs there.
+    private static let nonTranslatableKeys: Set<String> = [
+        "parent_concern", "child_openness", "possible_misalignment",
+        "detected_pattern", "data_confidence",
+        "frustration_level", "reflection_depth",
+    ]
+
+    /// Recursively translates every String leaf in a decoded JSON value
+    /// (dict/array of Any) from English to Indonesian, skipping only values
+    /// under a nonTranslatableKeys key. Deliberately recurse-and-translate-
+    /// by-default rather than hand-listing which keys ARE prose: a hand-
+    /// listed allowlist silently leaves new free-text fields in English when
+    /// the schema grows and the list isn't updated — exactly what happened
+    /// here when suggested_approach/example_before/example_after were added
+    /// to the overview schema (2026-08-25) without updating the old
+    /// per-field translation code. Recurse-by-default fails safe: a new
+    /// field defaults to being translated, not silently skipped.
+    private static func translateJSONStrings(_ value: Any) async throws -> Any {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return value
+            }
+            return try await OnDeviceTranslator.translate(
+                string, from: OnDeviceTranslator.english, to: OnDeviceTranslator.indonesian
+            )
+        }
+        if let dict = value as? [String: Any] {
+            var translated: [String: Any] = [:]
+            for (key, v) in dict {
+                translated[key] = nonTranslatableKeys.contains(key) ? v : try await translateJSONStrings(v)
+            }
+            return translated
+        }
+        if let array = value as? [Any] {
+            var translated: [Any] = []
+            for v in array {
+                translated.append(try await translateJSONStrings(v))
+            }
+            return translated
+        }
+        return value // numbers, bools, NSNull — pass through unchanged.
+    }
 
     private static func translateOutput(task: BenchmarkTask, englishOutput: String) async throws -> String {
         switch task {
@@ -67,50 +122,14 @@ enum OnDeviceTranslationPipeline {
             )
 
         case .extraction:
-            var json = try decodeJSONObject(stripFences(englishOutput))
-            if var extracted = json["extracted"] as? [String: Any?] {
-                for key in extracted.keys {
-                    if let value = extracted[key] as? String {
-                        extracted[key] = try await OnDeviceTranslator.translate(
-                            value, from: OnDeviceTranslator.english, to: OnDeviceTranslator.indonesian
-                        )
-                    }
-                }
-                json["extracted"] = extracted
-            }
-            // crisis_signal is a boolean — deliberately untouched.
-            return try encodeJSON(json)
+            let json = try decodeJSONObject(stripFences(englishOutput))
+            guard let translated = try await translateJSONStrings(json) as? [String: Any] else { return englishOutput }
+            return try encodeJSON(translated)
 
         case .overview:
-            var json = try decodeJSONObject(stripFences(englishOutput))
-            guard var overview = json["overview"] as? [String: Any] else { return englishOutput }
-
-            if let headline = overview["headline"] as? String {
-                overview["headline"] = try await OnDeviceTranslator.translate(headline, from: OnDeviceTranslator.english, to: OnDeviceTranslator.indonesian)
-            }
-            if let summary = overview["summary"] as? String {
-                overview["summary"] = try await OnDeviceTranslator.translate(summary, from: OnDeviceTranslator.english, to: OnDeviceTranslator.indonesian)
-            }
-            if let keyInsight = overview["key_insight"] as? String {
-                overview["key_insight"] = try await OnDeviceTranslator.translate(keyInsight, from: OnDeviceTranslator.english, to: OnDeviceTranslator.indonesian)
-            }
-            if let patterns = overview["patterns"] as? [[String: Any]] {
-                var translatedPatterns: [[String: Any]] = []
-                for var pattern in patterns {
-                    if let topic = pattern["topic"] as? String {
-                        pattern["topic"] = try await OnDeviceTranslator.translate(topic, from: OnDeviceTranslator.english, to: OnDeviceTranslator.indonesian)
-                    }
-                    if let observation = pattern["observation"] as? String {
-                        pattern["observation"] = try await OnDeviceTranslator.translate(observation, from: OnDeviceTranslator.english, to: OnDeviceTranslator.indonesian)
-                    }
-                    translatedPatterns.append(pattern)
-                }
-                overview["patterns"] = translatedPatterns
-            }
-            // relationship_signal (parent_concern/child_openness/possible_misalignment)
-            // deliberately left untouched — app-level enum, not display prose.
-            json["overview"] = overview
-            return try encodeJSON(json)
+            let json = try decodeJSONObject(stripFences(englishOutput))
+            guard let translated = try await translateJSONStrings(json) as? [String: Any] else { return englishOutput }
+            return try encodeJSON(translated)
 
         case .reflection:
             // FoundationModels sometimes returns a bare JSON array (just
@@ -125,19 +144,8 @@ enum OnDeviceTranslationPipeline {
             } else {
                 json = try decodeJSONObject(cleaned)
             }
-            if let recommendations = json["recommendations"] as? [[String: Any]] {
-                var translated: [[String: Any]] = []
-                for var rec in recommendations {
-                    for key in ["title", "description", "based_on"] {
-                        if let value = rec[key] as? String {
-                            rec[key] = try await OnDeviceTranslator.translate(value, from: OnDeviceTranslator.english, to: OnDeviceTranslator.indonesian)
-                        }
-                    }
-                    translated.append(rec)
-                }
-                json["recommendations"] = translated
-            }
-            return try encodeJSON(json)
+            guard let translated = try await translateJSONStrings(json) as? [String: Any] else { return englishOutput }
+            return try encodeJSON(translated)
         }
     }
 
