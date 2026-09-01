@@ -10,11 +10,13 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { callLlmWithFallback, parseJsonResponse } from "../_shared/llm.ts";
 import {
   buildOverviewPrompt,
+  deriveConfidenceTier,
   type EmotionLogForPrompt,
   type LogContextField,
   OVERVIEW_JSON_SCHEMA,
   type OverviewResult,
   type ParentInteractionForPrompt,
+  type ParentLogEntryForPrompt,
   type ParentReflectionForPrompt,
 } from "../_shared/prompts.ts";
 
@@ -77,33 +79,41 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "caller_is_on_device_mode" }, 400);
   }
 
-  const [{ data: logs }, { data: interactions }, { data: reflections }, { data: childProfile }] = await Promise.all([
-    supabase
-      .from("emotion_logs")
-      .select("id, timestamp, valence, valence_classification, labels, associations, journal, log_context_answers(field, answer)")
-      .eq("family_id", body.family_id)
-      .eq("context_complete", true)
-      .order("timestamp", { ascending: true })
-      .limit(50),
-    supabase
-      .from("parent_interactions")
-      .select("timestamp, topic, interaction, parent_emotion")
-      .eq("family_id", body.family_id)
-      .order("timestamp", { ascending: true })
-      .limit(20),
-    supabase
-      .from("parent_reflection_logs")
-      .select("timestamp, emotion, note")
-      .eq("family_id", body.family_id)
-      .order("timestamp", { ascending: true })
-      .limit(20),
-    supabase
-      .from("profiles")
-      .select("display_name")
-      .eq("family_id", body.family_id)
-      .eq("role", "child")
-      .single(),
-  ]);
+  const [{ data: logs }, { data: interactions }, { data: reflections }, { data: journalEntries }, { data: childProfile }] =
+    await Promise.all([
+      supabase
+        .from("emotion_logs")
+        .select("id, timestamp, valence, valence_classification, labels, associations, journal, log_context_answers(field, answer)")
+        .eq("family_id", body.family_id)
+        .eq("context_complete", true)
+        .order("timestamp", { ascending: true })
+        .limit(50),
+      supabase
+        .from("parent_interactions")
+        .select("timestamp, topic, interaction, parent_emotion")
+        .eq("family_id", body.family_id)
+        .order("timestamp", { ascending: true })
+        .limit(20),
+      supabase
+        .from("parent_reflection_logs")
+        .select("timestamp, emotion, note")
+        .eq("family_id", body.family_id)
+        .order("timestamp", { ascending: true })
+        .limit(20),
+      supabase
+        .from("parent_log_entries")
+        .select("timestamp, parent_log_answers(field, question_text, answer_text, sequence)")
+        .eq("family_id", body.family_id)
+        .eq("context_complete", true)
+        .order("timestamp", { ascending: true })
+        .limit(20),
+      supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("family_id", body.family_id)
+        .eq("role", "child")
+        .single(),
+    ]);
 
   const logsForPrompt: EmotionLogForPrompt[] = (logs ?? []).map((l) => ({
     timestamp: l.timestamp,
@@ -117,12 +127,50 @@ Deno.serve(async (req: Request) => {
     ),
   }));
 
+  // TODO: isSpecific is placeholder-false for child logs / parent
+  // interactions/reflections — nothing computes has_cognitive_mechanism for
+  // those yet. Fails safe: they read as [general], which the prompt's own
+  // rules already treat as a weak signal.
+  const taggedLogs = logsForPrompt.map((log) => ({ log, isSpecific: false }));
+  const taggedInteractions = ((interactions ?? []) as ParentInteractionForPrompt[]).map((interaction) => ({
+    interaction,
+    isSpecific: false,
+  }));
+  const taggedReflections = ((reflections ?? []) as ParentReflectionForPrompt[]).map((reflection) => ({
+    reflection,
+    isSpecific: false,
+  }));
+
+  // Guided-journal entries DO have a real signal: evaluate-parent-log-followup
+  // only stops the chain early (fewer than the 3-question hard cap) when it
+  // detected a cognitive mechanism, so an entry with < 3 answers is a good
+  // proxy for "spesifik" without needing another LLM call here.
+  const journalEntriesForPrompt: ParentLogEntryForPrompt[] = (journalEntries ?? []).map((e) => {
+    const answers = (e.parent_log_answers ?? []) as { field: LogContextField; question_text: string; answer_text: string; sequence: number }[];
+    return {
+      timestamp: e.timestamp,
+      isSpecific: answers.length < 3,
+      answers: answers
+        .sort((a, b) => a.sequence - b.sequence)
+        .map((a) => ({ field: a.field, questionText: a.question_text, answerText: a.answer_text })),
+    };
+  });
+
+  const childConfidenceTier = deriveConfidenceTier(taggedLogs.length, 0);
+  const parentConfidenceTier = deriveConfidenceTier(
+    taggedInteractions.length + taggedReflections.length + journalEntriesForPrompt.length,
+    journalEntriesForPrompt.filter((e) => e.isSpecific).length,
+  );
+
   try {
     const prompt = buildOverviewPrompt(
-      logsForPrompt,
-      (interactions ?? []) as ParentInteractionForPrompt[],
-      (reflections ?? []) as ParentReflectionForPrompt[],
+      taggedLogs,
+      taggedInteractions,
+      taggedReflections,
+      journalEntriesForPrompt,
       childProfile?.display_name ?? "anak",
+      childConfidenceTier,
+      parentConfidenceTier,
     );
 
     const result = await callLlmWithFallback(prompt, {
@@ -146,6 +194,7 @@ Deno.serve(async (req: Request) => {
         patterns: parsed.overview.patterns,
         relationship_signal: parsed.overview.relationship_signal,
         communication_style: parsed.overview.communication_style,
+        data_confidence: parsed.overview.data_confidence,
         key_insight: parsed.overview.key_insight,
         raw_response: { promptTokens: result.promptTokens, outputTokens: result.outputTokens },
       })

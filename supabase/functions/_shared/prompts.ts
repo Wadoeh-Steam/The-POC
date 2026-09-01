@@ -230,6 +230,26 @@ Fokus pada nada dan pendekatan (misal: dengarkan dulu tanpa menghakimi, tanyakan
 // 3. Relationship Overview (generate-overview) — ports PromptBuilder.overviewPrompt
 // ============================================================================
 
+// Wrapper types, not extensions of EmotionLogForPrompt/ParentInteractionFor
+// Prompt/ParentReflectionForPrompt — those base types are shared with
+// buildHowToReactPrompt/buildReflectionPrompt, which don't need [spesifik]/
+// [general] tagging. Keeping the tag on a wrapper avoids forcing an unused
+// field onto callers that don't have this concept.
+export interface TaggedEmotionLogForPrompt {
+  log: EmotionLogForPrompt;
+  isSpecific: boolean;
+}
+
+export interface TaggedParentInteractionForPrompt {
+  interaction: ParentInteractionForPrompt;
+  isSpecific: boolean;
+}
+
+export interface TaggedParentReflectionForPrompt {
+  reflection: ParentReflectionForPrompt;
+  isSpecific: boolean;
+}
+
 export interface OverviewResult {
   overview: {
     headline: string;
@@ -244,6 +264,10 @@ export interface OverviewResult {
       detected_pattern: "bald_on_record" | "autonomy_supportive" | "unclear";
       example_before: string | null;
       example_after: string | null;
+    };
+    data_confidence: {
+      child: ConfidenceTier;
+      parent: ConfidenceTier;
     };
     key_insight: string;
   };
@@ -272,20 +296,70 @@ Kalau di catatan interaksi orang tua ada kalimat yang sifatnya perintah langsung
 const DATA_NOT_JUDGMENT_RULE_ID =
   `Sajikan setiap "observation" sebagai POLA DARI DATA yang tercatat, bukan penilaian ke orang tua. Bukan "kamu terlalu memaksa soal beres-beres", tapi "pola yang tercatat: percakapan soal beres-beres di hari Kamis cenderung diikuti penurunan mood anak". Kalau ada pola waktu/hari/topik yang jelas kelihatan dari data, sebutkan spesifik (hari, topik) — itu yang bikin suggested_approach kerasa actionable, bukan generik. Jangan mengarang pola yang tidak benar-benar didukung datanya.`;
 
+// isSpecific mirrors the same has_cognitive_mechanism test as §5/§6 (see
+// COGNITIVE_MECHANISM_RULE_ID) — applied here to the child's own logs and
+// the parent's interactions/reflections, not just the be1 guided journal.
+// Tagging + entryCount/specificEntryCount/confidenceTier are all computed
+// by the caller and passed in as-is, same rule as buildParentOnlyOverviewPrompt.
+function compactLogsTagged(entries: TaggedEmotionLogForPrompt[]): string {
+  return entries
+    .map(({ log, isSpecific }) => `- [${isSpecific ? "spesifik" : "general"}] ${compactLog(log).slice(2)}`)
+    .join("\n");
+}
+
+function compactParentContextTagged(
+  interactions: TaggedParentInteractionForPrompt[],
+  reflections: TaggedParentReflectionForPrompt[],
+): string {
+  const lines: string[] = [];
+  for (const { interaction: i, isSpecific } of interactions) {
+    const tag = isSpecific ? "spesifik" : "general";
+    lines.push(
+      `- [${tag}] ${i.timestamp.slice(0, 10)} [${i.topic}] "${i.interaction}"` +
+        (i.parent_emotion ? ` (perasaan orang tua: ${i.parent_emotion})` : ""),
+    );
+  }
+  if (reflections.length) {
+    lines.push("Catatan refleksi orang tua:");
+    for (const { reflection: r, isSpecific } of reflections) {
+      const tag = isSpecific ? "spesifik" : "general";
+      lines.push(
+        `- [${tag}] ${r.timestamp.slice(0, 10)} merasa ${r.emotion}` +
+          (r.note ? `: "${r.note}"` : ""),
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
 export function buildOverviewPrompt(
-  logs: EmotionLogForPrompt[],
-  interactions: ParentInteractionForPrompt[],
-  reflections: ParentReflectionForPrompt[],
+  logs: TaggedEmotionLogForPrompt[],
+  interactions: TaggedParentInteractionForPrompt[],
+  reflections: TaggedParentReflectionForPrompt[],
+  guidedJournalEntries: ParentLogEntryForPrompt[],
   childName: string,
+  childConfidenceTier: ConfidenceTier,
+  parentConfidenceTier: ConfidenceTier,
 ): string {
   const name = firstName(childName);
+  const childSpecificCount = logs.filter((l) => l.isSpecific).length;
+  const parentEntryCount = interactions.length + reflections.length + guidedJournalEntries.length;
+  const parentSpecificCount =
+    interactions.filter((i) => i.isSpecific).length +
+    reflections.filter((r) => r.isSpecific).length +
+    guidedJournalEntries.filter((e) => e.isSpecific).length;
   return `Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi, DAN memberi penyesuaian komunikasi yang konkret, spesifik, dan low-effort untuk minggu ini. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati, dan pindah dari nasihat satu arah ke memvalidasi perasaan anak dulu.
 
-Catatan emosi anak (minggu terakhir):
-${compactLogs(logs)}
+Data minggu ini:
+- Anak: ${logs.length} catatan, ${childSpecificCount} di antaranya spesifik. Confidence: ${childConfidenceTier}.
+- Orang tua: ${parentEntryCount} catatan, ${parentSpecificCount} di antaranya spesifik. Confidence: ${parentConfidenceTier}.
 
-Konteks dari orang tua (interaksi terakhir dan refleksi):
-${compactParentContext(interactions, reflections)}
+Catatan emosi anak (minggu terakhir, ditandai [spesifik] atau [general] per catatan):
+${compactLogsTagged(logs)}
+Konteks dari orang tua (interaksi terakhir dan refleksi, ditandai [spesifik] atau [general] per catatan):
+${compactParentContextTagged(interactions, reflections)}
+Jurnal terpandu orang tua (guided journal minggu ini, ditandai [spesifik] atau [general] per catatan — ini biasanya sumber paling kaya karena orang tua diajak cerita lebih dalam soal satu momen):
+${compactParentLogEntries(guidedJournalEntries)}
 
 Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
 
@@ -310,13 +384,21 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
       "example_before": "<kutipan/parafrase dekat dari catatan orang tua, atau null>",
       "example_after": "<versi non-controlling-nya, atau null>"
     },
+    "data_confidence": {
+      "child": "<gunakan nilai yang diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>",
+      "parent": "<gunakan nilai yang diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>"
+    },
     "key_insight": "<1 kalimat pendek yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta>"
   }
 }
 
 Aturan:
+- Maksimal 3 "patterns" — kalau data cuma cukup mendukung 1-2 pola yang solid, kirim 1-2 aja. Jangan dipaksakan sampai 3.
+- Kalau ada jurnal terpandu [spesifik], jadikan itu dasar utama pattern/suggested_approach — datanya paling detail dibanding catatan lain.
 - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
 - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
+- Catatan yang ditandai [general] adalah sinyal LEMAH, bukan sinyal kosong. Jangan jadikan catatan [general] sebagai dasar utama sebuah "pola" — tapi tetap boleh disebut sebagai konteks. Dasarkan klaim pola terutama pada catatan [spesifik].
+- Kalau data_confidence.child adalah "low" — biasanya karena catatan anak minggu ini cuma 1-2 kali, atau sebagian besar [general] — JANGAN klaim adanya "pola" dari sisi anak. Cukup deskripsikan apa yang ada apa adanya (misal "baru ada satu catatan minggu ini, belum cukup untuk melihat pola"), dan child_openness/possible_misalignment harus mencerminkan keterbatasan ini, bukan disimpulkan seolah datanya lengkap.
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
 - ${AUTONOMY_SUPPORTIVE_RULE_ID}
 - ${DATA_NOT_JUDGMENT_RULE_ID}
@@ -369,9 +451,26 @@ export const OVERVIEW_JSON_SCHEMA = {
             required: ["detected_pattern", "example_before", "example_after"],
             additionalProperties: false,
           },
+          data_confidence: {
+            type: "object",
+            properties: {
+              child: { type: "string", enum: ["low", "building", "high"] },
+              parent: { type: "string", enum: ["low", "building", "high"] },
+            },
+            required: ["child", "parent"],
+            additionalProperties: false,
+          },
           key_insight: { type: "string" },
         },
-        required: ["headline", "summary", "patterns", "relationship_signal", "communication_style", "key_insight"],
+        required: [
+          "headline",
+          "summary",
+          "patterns",
+          "relationship_signal",
+          "communication_style",
+          "data_confidence",
+          "key_insight",
+        ],
         additionalProperties: false,
       },
     },
@@ -468,43 +567,57 @@ export const REFLECTION_JSON_SCHEMA = {
 // ============================================================================
 
 export interface FollowupEvaluationResult {
-  has_cognitive_mechanism: boolean;
-  followup_question: string | null;
+  affirmation: string;
+  followup_question: string;
   crisis_signal: boolean;
 }
 
-const COGNITIVE_MECHANISM_RULE_ID =
-  `"Cognitive mechanism words" adalah kata-kata sebab-akibat (karena, sebab, gara-gara, makanya, akibatnya) atau kata pemahaman/insight (jadi sadar, baru ngeh, ternyata, jadi paham, jadi ngerti, akhirnya nyadar) yang nunjukin penulis udah mikirin KENAPA sesuatu terjadi, bukan cuma nyebutin APA yang terjadi/dirasain. \
-Contoh TANPA cognitive mechanism words (masih dangkal, cuma nyebut perasaan): "Aku capek banget hari ini." / "Hari ini seru sih." \
-Contoh DENGAN cognitive mechanism words (udah ada penjelasan/pemahaman): "Aku capek banget hari ini karena kerjaan numpuk terus deadline-nya maju." / "Hari ini seru soalnya akhirnya ketemu temen lama, jadi baru sadar aku kangen banget."`;
+// Fixed 3-question arc (anchor + 2 follow-ups), always asked — not gated
+// on a "shallow vs deep" classification anymore. User feedback
+// (2026-09-01): a conditional gate meant the chain sometimes stopped
+// after just the anchor, and the last question she did get didn't read as
+// a real close ("nggak ngasih closing yang fulfilling"). followupNumber 1
+// digs into WHY; 2 is the deliberate close (impact/what's next), not
+// another "kenapa" — that's what makes it feel resolved instead of cut off.
+function followupStageInstruction(followupNumber: 1 | 2): string {
+  if (followupNumber === 1) {
+    return `Follow-up ini gali KENAPA — ajak orang tua cerita alasan/penyebab di balik apa yang baru diceritakan. Contoh: "Kira-kira kenapa kamu ngerasa begitu?", "Menurut kamu apa yang bikin itu kejadian?"`;
+  }
+  return `Follow-up ini PENUTUP obrolan — JANGAN tanya "kenapa" lagi (udah ditanya di follow-up sebelumnya). Ajak refleksi ke DAMPAK atau LANGKAH KE DEPAN biar obrolannya kerasa selesai, bukan gantung. Contoh: "Terus itu ngaruh ke gimana kamu liat dia sekarang?", "Ada yang pengen kamu coba beda abis ini?"`;
+}
 
 export function buildFollowupEvaluationPrompt(
   questionText: string,
   answerText: string,
+  followupNumber: 1 | 2,
 ): string {
-  return `Kamu membantu mengevaluasi jawaban dari sebuah guided journal (catatan reflektif harian).
+  const affirmationInstruction = followupNumber === 1
+    ? `Tulis SATU kalimat pendek yang mengakui perasaan orang tua dari jawabannya — bukan menilai. Ini reaksi PERTAMA di obrolan ini, boleh pakai nada hangat/seruan kayak "Wah..."/"Aduh..." kalau emang pas.`
+    : `Tulis SATU kalimat pendek yang mengakui perasaan orang tua dari jawabannya — bukan menilai. Ini BUKAN reaksi pertama lagi — JANGAN pakai pembuka seruan yang sama kayak "wah"/"aduh" lagi, kedengerannya dibuat-buat kalau diulang ("sok asik"). Pakai kalimat yang lebih tenang dan personal, kayak beneran nyimak.`;
 
-Pertanyaan yang diajukan:
-"${questionText}"
+  return `Kamu bantu lanjutin obrolan guided journal (catatan reflektif harian) orang tua.
 
-Jawaban orang yang mengisi:
-"${answerText}"
+Pertanyaan sebelumnya: "${questionText}"
+Jawaban orang tua: "${answerText}"
 
-${COGNITIVE_MECHANISM_RULE_ID}
+Tugas 1 — Afirmasi:
+${affirmationInstruction}
 
-Tugas 1 — Evaluasi:
-Tentukan apakah jawaban di atas SUDAH mengandung cognitive mechanism words (sebab-akibat/insight) atau BELUM.
-
-Tugas 2 — Follow-up (hanya jika Tugas 1 = belum ada):
-Kalau jawabannya masih dangkal (belum ada cognitive mechanism words), buat SATU pertanyaan follow-up singkat dan casual (bukan formal, bahasa sehari-hari Indonesia) yang ngajak orangnya cerita lebih jauh soal "kenapa" atau "apa yang bikin gitu" — spesifik nyambung ke jawaban dia, bukan pertanyaan generik "kenapa?" doang. Kalau jawaban SUDAH mengandung cognitive mechanism words, isi null di sini — jangan tetap kasih pertanyaan.
+Tugas 2 — Follow-up:
+${followupStageInstruction(followupNumber)}
+Ambil KATA KUNCI dari jawaban orang tua sendiri biar berasa nyambung, bukan pertanyaan generik. Lebih baik pertanyaan TERBUKA daripada pilihan A-atau-B. JANGAN pakai sapaan formal seperti "Bu/Pak", "Ibu/Bapak".
 
 Tugas 3 — Sinyal krisis:
-Tandai true HANYA jika jawaban menunjukkan indikasi serius menyakiti diri sendiri, keinginan bunuh diri, atau bahaya langsung terhadap keselamatan. Jangan tandai true untuk emosi negatif biasa (capek, sedih, stres) — hanya untuk sinyal krisis yang jelas.
+Tandai true HANYA jika jawaban menunjukkan indikasi serius menyakiti diri sendiri, keinginan bunuh diri, atau bahaya langsung terhadap keselamatan. Jangan tandai true untuk emosi negatif biasa (capek, sedih, stres).
+
+Contoh:
+- [follow-up ke-1, gali kenapa] Jawaban: "Aku capek banget ngurusin dia hari ini." -> afirmasi: "Kedengerannya hari ini berat banget ya." ; follow-up: "Kira-kira apa yang bikin paling capek, coba cerita?"
+- [follow-up ke-2, penutup] Jawaban: "Soalnya dia susah banget diomongin, tiap saran ditolak." -> afirmasi: "Oke, jadi rasanya kayak usaha kamu belum nyampe ke dia ya." ; follow-up: "Kalau boleh tau, kamu pengen hubungan kalian jadi kayak gimana ke depannya?"
 
 Output HARUS JSON valid, tanpa markdown, persis bentuk ini:
 {
-  "has_cognitive_mechanism": true or false,
-  "followup_question": "<pertanyaan follow-up singkat, atau null kalau has_cognitive_mechanism true>",
+  "affirmation": "<kalimat afirmasi singkat>",
+  "followup_question": "<pertanyaan follow-up singkat>",
   "crisis_signal": true or false
 }`;
 }
@@ -514,11 +627,262 @@ export const FOLLOWUP_EVALUATION_JSON_SCHEMA = {
   schema: {
     type: "object",
     properties: {
-      has_cognitive_mechanism: { type: "boolean" },
-      followup_question: { type: ["string", "null"] },
+      affirmation: { type: "string" },
+      followup_question: { type: "string" },
       crisis_signal: { type: "boolean" },
     },
-    required: ["has_cognitive_mechanism", "followup_question", "crisis_signal"],
+    required: ["affirmation", "followup_question", "crisis_signal"],
+    additionalProperties: false,
+  },
+};
+
+// ============================================================================
+// 5b. Per-entry journal insight (be1, end-of-chain synthesis)
+//
+// Runs once, after the guided-journal question chain ends (either
+// has_cognitive_mechanism came back true, or the 3-question hard cap was
+// hit) — client-side only, nothing persisted yet at this point (matches
+// this codebase's "client holds answers in memory until submit" rule).
+// Distinct from buildOverviewPrompt (§3): that one is weekly, cross-entry,
+// and combines child + parent data. This is single-entry, immediate, and
+// parent-only — purely a "here's what I heard" reflection back to the
+// parent before they review and send, per the flow diagram's "LLM process
+// insight of overall answers" -> "Display Journal Insight" step.
+
+export interface JournalInsightResult {
+  kesimpulan: string;
+  validasi_emosi: string;
+}
+
+export function buildJournalInsightPrompt(
+  qaPairs: { question: string; answer: string }[],
+  childName: string,
+): string {
+  // "anakmu" ("your child") when no real name is known yet — e.g. solo
+  // mode, no child paired (ARCHITECTURE.md §3b). Same generic reference
+  // select-parent-log-questions' CHILD_REFERENCE uses for its opener, and
+  // for the same reason: composes into personalityRuleId's instructions
+  // ("Sebut anakmu di tengah kalimat...") without needing a real name.
+  const name = firstName(childName.trim() || "anakmu");
+  const transcript = qaPairs.map((qa) => `T: ${qa.question}\nJ: ${qa.answer}`).join("\n\n");
+  return `Kamu asisten keluarga yang empatik. Orang tua baru saja mengisi guided journal singkat soal harinya. Berikut percakapannya:
+
+${transcript}
+
+Buat ringkasan singkat sebagai JSON saja, persis bentuk ini:
+{
+  "kesimpulan": "<1-2 kalimat singkat, hati-hati, merangkum apa yang diceritakan orang tua>",
+  "validasi_emosi": "<1-2 kalimat yang mengakui/memvalidasi perasaan orang tua sebagai hal yang wajar, bukan menilai>"
+}
+
+Aturan:
+- ${CAUTIOUS_LANGUAGE_RULE_ID}
+- ${personalityRuleId(name)}
+- Sebut ${name} HANYA kalau jawaban orang tua di atas emang nyeritain soal ${name} atau interaksi sama ${name}. Kalau topiknya soal hal lain (pekerjaan, tidur, kondisi diri sendiri, dll), jangan dipaksain nyebut ${name} sama sekali.
+- Jangan menyimpulkan lebih dari yang benar-benar tersirat dari jawaban di atas.
+- Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
+}
+
+export const JOURNAL_INSIGHT_JSON_SCHEMA = {
+  name: "journal_insight",
+  schema: {
+    type: "object",
+    properties: {
+      kesimpulan: { type: "string" },
+      validasi_emosi: { type: "string" },
+    },
+    required: ["kesimpulan", "validasi_emosi"],
+    additionalProperties: false,
+  },
+};
+
+// ============================================================================
+// 6. Parent-only overview (be1, parent-side-only path)
+//
+// Distinct from buildOverviewPrompt (§3): that one combines child emotion
+// logs + parent context and can make cautious claims about the child's
+// side. This one runs when there's no child data to draw on yet (child
+// hasn't onboarded/logged) — the model has ONLY the parent's own guided-
+// journal entries (parent_log_entries/parent_log_answers, be1) and must
+// never assert the child's feelings/perspective as fact.
+//
+// entryCount/specificEntryCount/confidenceTier are computed by the caller
+// and passed in as-is — this function does not recompute confidence.
+// "specific" per entry uses the same has_cognitive_mechanism test as
+// evaluate-parent-log-followup's COGNITIVE_MECHANISM_RULE_ID (a proxy: an
+// entry with no 'followup' row for a field means the main answer already
+// had cognitive-mechanism words, i.e. was specific).
+//
+// Not yet wired to a caller — no edge function invokes this yet, same as
+// select-parent-log-questions before it was wired up. Whoever adds the
+// caller also needs to decide entryCount/specificEntryCount/confidenceTier's
+// exact computation (this file only consumes them).
+// ============================================================================
+
+export interface ParentLogEntryForPrompt {
+  timestamp: string;
+  isSpecific: boolean;
+  answers: { field: LogContextField; questionText: string; answerText: string }[];
+}
+
+export type ConfidenceTier = "low" | "building" | "high";
+
+// Placeholder tier thresholds — not tuned/validated against real usage, same
+// "not finalized" caveat as PromptBuilder.valenceClassification's placeholder
+// thresholds. Callers (generate-overview, a future generate-parent-only-
+// overview) use this so confidence isn't silently invented ad hoc per call
+// site; swap the thresholds here once there's real UX data to tune against.
+export function deriveConfidenceTier(entryCount: number, specificEntryCount: number): ConfidenceTier {
+  if (entryCount === 0) return "low";
+  const specificRatio = specificEntryCount / entryCount;
+  if (entryCount >= 3 && specificRatio >= 0.5) return "high";
+  if (entryCount >= 2 && specificRatio >= 0.25) return "building";
+  return "low";
+}
+
+export interface ParentOnlyOverviewResult {
+  overview: {
+    headline: string;
+    summary: string;
+    patterns: { topic: string; observation: string; suggested_approach: string }[];
+    parent_signal: {
+      frustration_level: "low" | "moderate" | "high";
+      reflection_depth: "surface" | "building" | "specific";
+    };
+    communication_style: {
+      detected_pattern: "bald_on_record" | "autonomy_supportive" | "unclear";
+      example_before: string | null;
+      example_after: string | null;
+    };
+    data_confidence: ConfidenceTier;
+    key_insight: string;
+  };
+}
+
+function compactParentLogEntries(entries: ParentLogEntryForPrompt[]): string {
+  return entries
+    .map((e) => {
+      const tag = e.isSpecific ? "[spesifik]" : "[general]";
+      const qa = e.answers
+        .map((a) => `${FIELD_LABEL_ID[a.field]}: "${a.questionText}" -> "${a.answerText}"`)
+        .join(" | ");
+      return `- ${e.timestamp.slice(0, 10)} ${tag} ${qa}`;
+    })
+    .join("\n");
+}
+
+export function buildParentOnlyOverviewPrompt(
+  entries: ParentLogEntryForPrompt[],
+  childName: string,
+  confidenceTier: ConfidenceTier,
+): string {
+  const name = firstName(childName);
+  const specificCount = entries.filter((e) => e.isSpecific).length;
+  return `Kamu adalah pelatih pribadi yang empatik untuk orang tua. Tugasmu menganalisis catatan refleksi orang tua sendiri (minggu ini) untuk membantu mereka membangun kosakata emosi dan pola komunikasi yang lebih autonomy-supportive — SEBELUM mereka mempraktikkannya ke anak. Kamu TIDAK punya data dari anak sama sekali di tahap ini, jadi jangan pernah membuat klaim atau tebakan pasti tentang perasaan atau sudut pandang anak.
+
+Data minggu ini: ${entries.length} catatan orang tua, ${specificCount} di antaranya spesifik (mengandung kata sebab-akibat/insight). Confidence level minggu ini: ${confidenceTier}.
+
+Catatan refleksi orang tua (minggu ini, ditandai [spesifik] atau [general] per catatan):
+${compactParentLogEntries(entries)}
+
+Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
+{
+  "overview": {
+    "headline": "<1 kalimat pendek, maks 10 kata, hati-hati>",
+    "summary": "<1-2 kalimat tentang pola yang muncul DI CATATAN ORANG TUA SENDIRI minggu ini — bukan tentang keadaan anak>",
+    "patterns": [
+      {
+        "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya",
+        "observation": "<1 kalimat pendek, hati-hati, tentang pola dalam cara orang tua bercerita atau bereaksi — sespesifik data-nya>",
+        "suggested_approach": "<1 kalimat: penyesuaian komunikasi konkret buat dicoba minggu depan, mulai dengan mengakui perasaan anak dulu>"
+      }
+    ],
+    "parent_signal": {
+      "frustration_level": "low|moderate|high",
+      "reflection_depth": "surface|building|specific"
+    },
+    "communication_style": {
+      "detected_pattern": "bald_on_record|autonomy_supportive|unclear",
+      "example_before": "<kutipan/parafrase dekat dari catatan orang tua, atau null>",
+      "example_after": "<versi non-controlling-nya, atau null>"
+    },
+    "data_confidence": "<gunakan nilai confidence yang sudah diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>",
+    "key_insight": "<1 kalimat pendek tentang pola atau asumsi yang mungkin ada di cara orang tua memandang situasi ini, disampaikan sebagai kemungkinan untuk direnungkan — bukan sebagai penilaian, dan bukan klaim tentang apa yang sebenarnya dirasakan anak>"
+  }
+}
+
+Aturan:
+- Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
+- Perlakukan catatan orang tua sebagai satu sisi cerita, bukan kebenaran objektif tentang anak.
+- Catatan yang ditandai [general] adalah sinyal LEMAH, bukan sinyal kosong. Jangan jadikan catatan [general] sebagai dasar utama sebuah "pola" atau key_insight — tapi tetap boleh disebut sebagai konteks. Dasarkan klaim pola terutama pada catatan [spesifik].
+- Kalau data_confidence yang diberikan adalah "low" (entah karena jumlah catatan sedikit, atau sebagian besar masih [general]), JANGAN klaim adanya pola yang kuat. Cukup deskripsikan apa yang ada secara ringan, dan biarkan patterns kosong atau minimal kalau memang datanya belum cukup untuk itu.
+- JANGAN PERNAH mendeskripsikan perasaan, niat, atau sudut pandang anak sebagai fakta — kamu hanya punya cerita orang tua tentang anak, bukan cerita dari anak itu sendiri. Kalau perlu menyinggung kemungkinan perspektif anak, gunakan frasa seperti "anak mungkin merasa..., meski ini belum dikonfirmasi dari sisi anak."
+- ${CAUTIOUS_LANGUAGE_RULE_ID}
+- ${AUTONOMY_SUPPORTIVE_RULE_ID}
+- ${DATA_NOT_JUDGMENT_RULE_ID}
+- ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
+- ${QUOTE_RULE_ID}
+- Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
+}
+
+export const PARENT_ONLY_OVERVIEW_JSON_SCHEMA = {
+  name: "parent_only_overview",
+  schema: {
+    type: "object",
+    properties: {
+      overview: {
+        type: "object",
+        properties: {
+          headline: { type: "string" },
+          summary: { type: "string" },
+          patterns: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                topic: { type: "string" },
+                observation: { type: "string" },
+                suggested_approach: { type: "string" },
+              },
+              required: ["topic", "observation", "suggested_approach"],
+              additionalProperties: false,
+            },
+          },
+          parent_signal: {
+            type: "object",
+            properties: {
+              frustration_level: { type: "string", enum: ["low", "moderate", "high"] },
+              reflection_depth: { type: "string", enum: ["surface", "building", "specific"] },
+            },
+            required: ["frustration_level", "reflection_depth"],
+            additionalProperties: false,
+          },
+          communication_style: {
+            type: "object",
+            properties: {
+              detected_pattern: { type: "string", enum: ["bald_on_record", "autonomy_supportive", "unclear"] },
+              example_before: { type: ["string", "null"] },
+              example_after: { type: ["string", "null"] },
+            },
+            required: ["detected_pattern", "example_before", "example_after"],
+            additionalProperties: false,
+          },
+          data_confidence: { type: "string", enum: ["low", "building", "high"] },
+          key_insight: { type: "string" },
+        },
+        required: [
+          "headline",
+          "summary",
+          "patterns",
+          "parent_signal",
+          "communication_style",
+          "data_confidence",
+          "key_insight",
+        ],
+        additionalProperties: false,
+      },
+    },
+    required: ["overview"],
     additionalProperties: false,
   },
 };

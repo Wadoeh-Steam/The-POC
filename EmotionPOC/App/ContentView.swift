@@ -22,6 +22,12 @@ struct ContentView: View {
     @State private var runningComparison = false
     @State private var runningServerOnly = false
     @State private var console: [String] = []
+    // Latest log() line, shown live right under the buttons — added
+    // because "Log Teknis" is a collapsed DisclosureGroup by default, so a
+    // long-running request (up to 45s per provider attempt, see
+    // ServerOpenRouter.generate) had zero visible progress and read as a
+    // frozen app (reported live, 2026-08-25).
+    @State private var currentStatus: String = ""
 
     // Stored on-device only (Settings.app-visible UserDefaults, never
     // written to any file in this repo) — a plain tap on the app icon
@@ -118,7 +124,34 @@ struct ContentView: View {
                     Text("Cuma jalur Server (OpenRouter) — lebih cepat buat cek ulang tanpa nunggu HP (on-device), nggak butuh paket bahasa ter-install.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+
+                    if running {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(currentStatus.isEmpty ? "Memulai…" : currentStatus)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        .padding(.top, 2)
+                    }
                 }
+
+                #if DEBUG
+                // Debug-only, no LLM call — seeds the overview card with a
+                // hand-written JSON that fills every field of
+                // OVERVIEW_JSON_SCHEMA (prompts.ts), so the render path can
+                // be checked with no API key / no on-device model needed.
+                // Never compiled into a Release build.
+                Section {
+                    Button("🧪 Muat Contoh Overview (Debug)") {
+                        comparisons = [Self.debugSampleOverviewComparison]
+                    }
+                    Text("Ngisi kartu Ringkasan Hubungan pakai JSON contoh langsung, tanpa manggil LLM — buat mastiin semua field (suggested_approach, communication_style, data_confidence) ke-render bener di layar.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                #endif
 
                 if !comparisons.isEmpty {
                     Section("Ringkasan Kecepatan") {
@@ -269,6 +302,7 @@ struct ContentView: View {
             let prompt = PromptBuilder.prompt(for: task, data: dataset)
 
             if let config = openRouterConfig {
+                log("[openrouter:\(config.model)] \(task.rawValue) (\(i + 1)/\(BenchmarkTask.allCases.count)) → menunggu jawaban…")
                 do {
                     let r = try await ServerOpenRouter.generate(task: task, prompt: prompt, config: config)
                     comparisons[i].server = r
@@ -282,6 +316,7 @@ struct ContentView: View {
             }
 
             if let config = requestyConfig {
+                log("[requesty:\(config.model)] \(task.rawValue) (\(i + 1)/\(BenchmarkTask.allCases.count)) → menunggu jawaban…")
                 do {
                     var r = try await ServerOpenRouter.generate(task: task, prompt: prompt, config: config)
                     r.model = "requesty:\(config.model)"
@@ -296,6 +331,7 @@ struct ContentView: View {
             }
 
             if let config = geminiConfig {
+                log("[gemini:\(config.model)] \(task.rawValue) (\(i + 1)/\(BenchmarkTask.allCases.count)) → menunggu jawaban…")
                 do {
                     let r = try await ServerGemini.generate(task: task, prompt: prompt, config: config)
                     comparisons[i].server = ServerOpenRouter.Result(
@@ -320,8 +356,65 @@ struct ContentView: View {
     private func log(_ line: String) {
         print(line)
         console.append(line)
+        currentStatus = line
     }
 }
+
+#if DEBUG
+extension ContentView {
+    /// Every field OVERVIEW_JSON_SCHEMA can return, filled with realistic
+    /// non-null content — including communication_style's before/after
+    /// pair and both data_confidence tiers — so the "🧪 Muat Contoh
+    /// Overview" debug button can prove the render path handles the whole
+    /// shape, not just whichever fields a given live LLM response happened
+    /// to fill in.
+    static let debugSampleOverviewComparison: TaskComparison = {
+        let json = """
+        {
+          "overview": {
+            "headline": "Pola komunikasi mulai membaik minggu ini",
+            "summary": "Ada indikasi Maya lebih terbuka soal sekolah, meski masih ada ketegangan seputar tugas rumah.",
+            "patterns": [
+              {
+                "topic": "Pendidikan",
+                "observation": "Percakapan soal tugas sekolah di hari Kamis cenderung diikuti mood yang menurun.",
+                "suggested_approach": "Coba akui dulu rasa capeknya sebelum masuk ke soal jadwal tugas."
+              },
+              {
+                "topic": "Keluarga",
+                "observation": "Beberapa catatan menyebut Maya merasa buru-buru diminta beres-beres.",
+                "suggested_approach": "Tanyakan waktu yang nyaman buat beres-beres, bukan langsung minta sekarang."
+              }
+            ],
+            "relationship_signal": {
+              "parent_concern": "moderate",
+              "child_openness": "moderate",
+              "possible_misalignment": true
+            },
+            "communication_style": {
+              "detected_pattern": "bald_on_record",
+              "example_before": "Kamu harus beresin kamar sekarang juga.",
+              "example_after": "Mungkin lebih enak kalau kamarnya dirapiin sebelum makan malam, gimana?"
+            },
+            "data_confidence": {
+              "child": "building",
+              "parent": "high"
+            },
+            "key_insight": "Maya mungkin butuh waktu jeda sebelum diajak bicara soal tugas, meski ini belum dikonfirmasi langsung dari sisi Maya."
+          }
+        }
+        """
+        var comparison = TaskComparison(task: .overview)
+        comparison.server = ServerOpenRouter.Result(
+            model: "debug-sample", task: .overview, ok: true, error: nil,
+            totalMs: 0, promptTokens: 0, outputTokens: 0, reasoningTokens: 0,
+            finishReason: "debug", outChars: json.count, outWords: 0, tokPerSec: 0,
+            output: json
+        )
+        return comparison
+    }()
+}
+#endif
 
 struct TaskComparisonRow: View {
     let comparison: TaskComparison

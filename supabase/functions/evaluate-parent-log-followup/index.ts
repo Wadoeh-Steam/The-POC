@@ -1,16 +1,11 @@
 // evaluate-parent-log-followup — be1, parent-first scope.
-// Called per main-question view, in real time, while the parent is still
-// on that screen — sits in the write path, same latency sensitivity as
-// check-log-context (§3a). Uses callLlmWithFallback (OpenRouter -> Requesty
-// -> Gemini) with a short total budget: if the whole chain can't answer in
-// time, we skip the followup rather than block the UI — per user decision,
-// "kalau timeout, skip aja".
-//
-// Trigger mechanism is deliberately NOT check-log-context's LogContextField
-// extraction — see prompts.ts's buildFollowupEvaluationPrompt. Does not
-// write to the database; the client holds all answers in memory until
-// submit-parent-log-entry (per user decision: app kill = full reset, no
-// partial persistence).
+// Called per question view, in real time, while the parent is still on
+// that screen — sits in the write path, same latency sensitivity as
+// check-log-context (§3a). Always generates a follow-up (fixed 3-question
+// arc: anchor + 2 follow-ups) — see prompts.ts's buildFollowupEvaluationPrompt
+// for why this isn't gated on a "shallow vs deep" classification anymore.
+// Does not write to the database; the client holds all answers in memory
+// until submit-parent-log-entry.
 
 import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
@@ -22,14 +17,26 @@ import {
 } from "../_shared/prompts.ts";
 
 const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
-// Total wall-clock budget across the WHOLE OpenRouter->Requesty->Gemini
-// chain, not per-provider — see callLlmWithFallback's doc comment. Tighter
-// than generate-overview's tolerance since this blocks a visible UI step.
 const TOTAL_BUDGET_MS = 5000;
+
+// Used only if the LLM chain fails outright — keeps the 3-question arc
+// intact (a generic follow-up beats silently dropping to 2 questions),
+// matching the stage-specific examples already in the prompt.
+const FALLBACK_QUESTION: Record<1 | 2, { affirmation: string; followup_question: string }> = {
+  1: {
+    affirmation: "Makasih udah cerita ya.",
+    followup_question: "Kira-kira kenapa kamu ngerasa begitu?",
+  },
+  2: {
+    affirmation: "Oke, makasih udah cerita lebih jauh.",
+    followup_question: "Ada yang pengen kamu coba beda abis ini?",
+  },
+};
 
 interface RequestBody {
   question_text: string;
   answer_text: string;
+  followup_number: 1 | 2;
 }
 
 Deno.serve(async (req: Request) => {
@@ -50,12 +57,12 @@ Deno.serve(async (req: Request) => {
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
-  if (!body.question_text || !body.answer_text) {
-    return jsonResponse({ error: "question_text and answer_text are required" }, 400);
+  if (!body.question_text || !body.answer_text || (body.followup_number !== 1 && body.followup_number !== 2)) {
+    return jsonResponse({ error: "question_text, answer_text and followup_number (1 or 2) are required" }, 400);
   }
 
   try {
-    const prompt = buildFollowupEvaluationPrompt(body.question_text, body.answer_text);
+    const prompt = buildFollowupEvaluationPrompt(body.question_text, body.answer_text, body.followup_number);
     const result = await callLlmWithFallback(prompt, {
       model: Deno.env.get("OPENROUTER_MODEL_FOLLOWUP_EVAL") ?? DEFAULT_MODEL,
       jsonSchema: FOLLOWUP_EVALUATION_JSON_SCHEMA,
@@ -66,8 +73,8 @@ Deno.serve(async (req: Request) => {
     const parsed = parseJsonResponse<FollowupEvaluationResult>(result.text);
 
     return jsonResponse({
-      has_cognitive_mechanism: parsed.has_cognitive_mechanism === true,
-      followup_question: parsed.has_cognitive_mechanism === true ? null : parsed.followup_question,
+      affirmation: parsed.affirmation,
+      followup_question: parsed.followup_question,
       // Kept for schema consistency; downstream crisis_events handling is
       // backlogged on this path (see context.md) — accepted and returned,
       // not acted on.
@@ -76,14 +83,9 @@ Deno.serve(async (req: Request) => {
       provider: result.provider,
     });
   } catch (err) {
-    // Timeout / all-providers-failed / malformed JSON all land here.
-    // Per user decision: skip the followup, never block the user on an
-    // LLM hiccup — this is a 200, not an error response, since "no
-    // followup" is a valid, expected outcome from the client's perspective.
-    console.error("evaluate-parent-log-followup: evaluation failed, skipping followup:", err);
+    console.error("evaluate-parent-log-followup: generation failed, using fallback question:", err);
     return jsonResponse({
-      has_cognitive_mechanism: true,
-      followup_question: null,
+      ...FALLBACK_QUESTION[body.followup_number],
       crisis_signal: false,
       skipped: true,
     });

@@ -47,7 +47,11 @@ enum ServerGemini {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 180
+        // Matches ServerOpenRouter.generate's 45s (down from 180s) — same
+        // fallback-chain stall risk applies here since this is the chain's
+        // last provider. Not touching anything else in this file, which is
+        // deliberately kept as the Phase 0 historical record otherwise.
+        request.timeoutInterval = 45
 
         let body: [String: Any] = [
             "contents": [["role": "user", "parts": [["text": prompt]]]],

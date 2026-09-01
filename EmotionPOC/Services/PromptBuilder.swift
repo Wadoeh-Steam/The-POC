@@ -233,15 +233,87 @@ enum PromptBuilder {
 
     // MARK: - 3. Relationship Overview (generate-overview)
 
-    static func overviewPrompt(_ data: DummyDataset) -> String {
-        """
+    // Wrapper types, not extensions of EmotionLog/RecentInteraction/ParentLog
+    // — those are shared with compactLog/compactParentContext above, which
+    // don't need [spesifik]/[general] tagging. Kept in sync with
+    // prompts.ts's TaggedEmotionLogForPrompt/TaggedParentInteractionForPrompt/
+    // TaggedParentReflectionForPrompt.
+    struct TaggedEmotionLog {
+        let log: EmotionLog
+        let isSpecific: Bool
+    }
+
+    struct TaggedParentInteraction {
+        let interaction: RecentInteraction
+        let isSpecific: Bool
+    }
+
+    struct TaggedParentReflection {
+        let reflection: ParentLog
+        let isSpecific: Bool
+    }
+
+    /// Placeholder tier thresholds — not tuned/validated, same "not
+    /// finalized" caveat as valenceClassification's placeholder thresholds.
+    /// Kept in sync with prompts.ts's deriveConfidenceTier.
+    static func deriveConfidenceTier(entryCount: Int, specificEntryCount: Int) -> String {
+        if entryCount == 0 { return "low" }
+        let specificRatio = Double(specificEntryCount) / Double(entryCount)
+        if entryCount >= 3 && specificRatio >= 0.5 { return "high" }
+        if entryCount >= 2 && specificRatio >= 0.25 { return "building" }
+        return "low"
+    }
+
+    static func compactLogsTagged(_ entries: [TaggedEmotionLog]) -> String {
+        entries.map { entry in
+            let tag = entry.isSpecific ? "spesifik" : "general"
+            let rest = compactLog(entry.log).dropFirst(2)
+            return "- [\(tag)] \(rest)"
+        }.joined(separator: "\n")
+    }
+
+    static func compactParentContextTagged(
+        interactions: [TaggedParentInteraction],
+        reflections: [TaggedParentReflection]
+    ) -> String {
+        var lines: [String] = []
+        for t in interactions {
+            let tag = t.isSpecific ? "spesifik" : "general"
+            lines.append("- [\(tag)] \(String(t.interaction.timestamp.prefix(10))) [\(t.interaction.topic)] \"\(t.interaction.interaction)\" (perasaan orang tua: \(t.interaction.parentEmotion))")
+        }
+        if !reflections.isEmpty {
+            lines.append("Catatan refleksi orang tua:")
+            for t in reflections {
+                let tag = t.isSpecific ? "spesifik" : "general"
+                lines.append("- [\(tag)] \(String(t.reflection.timestamp.prefix(10))) merasa \(t.reflection.emotion): \"\(t.reflection.note)\"")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func overviewPrompt(
+        logs: [TaggedEmotionLog],
+        interactions: [TaggedParentInteraction],
+        reflections: [TaggedParentReflection],
+        childName: String,
+        childConfidenceTier: String,
+        parentConfidenceTier: String
+    ) -> String {
+        let name = firstName(childName)
+        let childSpecificCount = logs.filter(\.isSpecific).count
+        let parentEntryCount = interactions.count + reflections.count
+        let parentSpecificCount = interactions.filter(\.isSpecific).count + reflections.filter(\.isSpecific).count
+        return """
         Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi, DAN memberi penyesuaian komunikasi yang konkret, spesifik, dan low-effort untuk minggu ini. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati, dan pindah dari nasihat satu arah ke memvalidasi perasaan anak dulu.
 
-        Catatan emosi anak (minggu terakhir):
-        \(compactLogs(data))
+        Data minggu ini:
+        - Anak: \(logs.count) catatan, \(childSpecificCount) di antaranya spesifik. Confidence: \(childConfidenceTier).
+        - Orang tua: \(parentEntryCount) catatan, \(parentSpecificCount) di antaranya spesifik. Confidence: \(parentConfidenceTier).
 
-        Konteks dari orang tua (interaksi terakhir dan refleksi):
-        \(compactParentContext(data))
+        Catatan emosi anak (minggu terakhir, ditandai [spesifik] atau [general] per catatan):
+        \(compactLogsTagged(logs))
+        Konteks dari orang tua (interaksi terakhir dan refleksi, ditandai [spesifik] atau [general] per catatan):
+        \(compactParentContextTagged(interactions: interactions, reflections: reflections))
 
         Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
 
@@ -266,6 +338,10 @@ enum PromptBuilder {
               "example_before": "<kutipan/parafrase dekat dari catatan orang tua, atau null>",
               "example_after": "<versi non-controlling-nya, atau null>"
             },
+            "data_confidence": {
+              "child": "<gunakan nilai yang diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>",
+              "parent": "<gunakan nilai yang diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>"
+            },
             "key_insight": "<1 kalimat pendek yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta>"
           }
         }
@@ -273,12 +349,101 @@ enum PromptBuilder {
         Aturan:
         - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
         - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
+        - Catatan yang ditandai [general] adalah sinyal LEMAH, bukan sinyal kosong. Jangan jadikan catatan [general] sebagai dasar utama sebuah "pola" — tapi tetap boleh disebut sebagai konteks. Dasarkan klaim pola terutama pada catatan [spesifik].
+        - Kalau data_confidence.child adalah "low" — biasanya karena catatan anak minggu ini cuma 1-2 kali, atau sebagian besar [general] — JANGAN klaim adanya "pola" dari sisi anak. Cukup deskripsikan apa yang ada apa adanya (misal "baru ada satu catatan minggu ini, belum cukup untuk melihat pola"), dan child_openness/possible_misalignment harus mencerminkan keterbatasan ini, bukan disimpulkan seolah datanya lengkap.
         - \(cautiousLanguageRule)
         - \(autonomySupportiveRule)
         - \(dataNotJudgmentRule)
-        - \(personalityRule(childName: firstName(data.child.name))) (berlaku untuk summary dan key_insight)
+        - \(personalityRule(childName: name)) (berlaku untuk summary dan key_insight)
         - \(quoteRule)
         - Pertimbangkan perspektif anak maupun orang tua.
+        - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.
+        """
+    }
+
+    // MARK: - 3b. Parent-only overview (be1, parent-side-only path)
+    // Distinct from overviewPrompt above: runs when there's no child data
+    // yet — model only sees the parent's own guided-journal entries and
+    // must never assert the child's feelings/perspective as fact.
+    // entries/confidenceTier are computed by the caller and passed in as-is.
+    // Not wired into DummyDataset/BenchmarkTask yet — that needs fixture
+    // data for parent guided-journal entries, which this POC dataset
+    // doesn't have. Kept in sync with prompts.ts's buildParentOnlyOverviewPrompt.
+
+    struct ParentLogAnswerForPrompt {
+        let field: LogContextField
+        let questionText: String
+        let answerText: String
+    }
+
+    struct ParentLogEntryForPrompt {
+        let timestamp: String
+        let isSpecific: Bool
+        let answers: [ParentLogAnswerForPrompt]
+    }
+
+    static func compactParentLogEntries(_ entries: [ParentLogEntryForPrompt]) -> String {
+        entries.map { entry in
+            let tag = entry.isSpecific ? "[spesifik]" : "[general]"
+            let qa = entry.answers
+                .map { "\($0.field.indonesianLabel): \"\($0.questionText)\" -> \"\($0.answerText)\"" }
+                .joined(separator: " | ")
+            return "- \(String(entry.timestamp.prefix(10))) \(tag) \(qa)"
+        }.joined(separator: "\n")
+    }
+
+    static func parentOnlyOverviewPrompt(
+        entries: [ParentLogEntryForPrompt],
+        childName: String,
+        confidenceTier: String
+    ) -> String {
+        let name = firstName(childName)
+        let specificCount = entries.filter(\.isSpecific).count
+        return """
+        Kamu adalah pelatih pribadi yang empatik untuk orang tua. Tugasmu menganalisis catatan refleksi orang tua sendiri (minggu ini) untuk membantu mereka membangun kosakata emosi dan pola komunikasi yang lebih autonomy-supportive — SEBELUM mereka mempraktikkannya ke anak. Kamu TIDAK punya data dari anak sama sekali di tahap ini, jadi jangan pernah membuat klaim atau tebakan pasti tentang perasaan atau sudut pandang anak.
+
+        Data minggu ini: \(entries.count) catatan orang tua, \(specificCount) di antaranya spesifik (mengandung kata sebab-akibat/insight). Confidence level minggu ini: \(confidenceTier).
+
+        Catatan refleksi orang tua (minggu ini, ditandai [spesifik] atau [general] per catatan):
+        \(compactParentLogEntries(entries))
+
+        Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
+        {
+          "overview": {
+            "headline": "<1 kalimat pendek, maks 10 kata, hati-hati>",
+            "summary": "<1-2 kalimat tentang pola yang muncul DI CATATAN ORANG TUA SENDIRI minggu ini — bukan tentang keadaan anak>",
+            "patterns": [
+              {
+                "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya",
+                "observation": "<1 kalimat pendek, hati-hati, tentang pola dalam cara orang tua bercerita atau bereaksi — sespesifik data-nya>",
+                "suggested_approach": "<1 kalimat: penyesuaian komunikasi konkret buat dicoba minggu depan, mulai dengan mengakui perasaan anak dulu>"
+              }
+            ],
+            "parent_signal": {
+              "frustration_level": "low|moderate|high",
+              "reflection_depth": "surface|building|specific"
+            },
+            "communication_style": {
+              "detected_pattern": "bald_on_record|autonomy_supportive|unclear",
+              "example_before": "<kutipan/parafrase dekat dari catatan orang tua, atau null>",
+              "example_after": "<versi non-controlling-nya, atau null>"
+            },
+            "data_confidence": "<gunakan nilai confidence yang sudah diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>",
+            "key_insight": "<1 kalimat pendek tentang pola atau asumsi yang mungkin ada di cara orang tua memandang situasi ini, disampaikan sebagai kemungkinan untuk direnungkan — bukan sebagai penilaian, dan bukan klaim tentang apa yang sebenarnya dirasakan anak>"
+          }
+        }
+
+        Aturan:
+        - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
+        - Perlakukan catatan orang tua sebagai satu sisi cerita, bukan kebenaran objektif tentang anak.
+        - Catatan yang ditandai [general] adalah sinyal LEMAH, bukan sinyal kosong. Jangan jadikan catatan [general] sebagai dasar utama sebuah "pola" atau key_insight — tapi tetap boleh disebut sebagai konteks. Dasarkan klaim pola terutama pada catatan [spesifik].
+        - Kalau data_confidence yang diberikan adalah "low" (entah karena jumlah catatan sedikit, atau sebagian besar masih [general]), JANGAN klaim adanya pola yang kuat. Cukup deskripsikan apa yang ada secara ringan, dan biarkan patterns kosong atau minimal kalau memang datanya belum cukup untuk itu.
+        - JANGAN PERNAH mendeskripsikan perasaan, niat, atau sudut pandang anak sebagai fakta — kamu hanya punya cerita orang tua tentang anak, bukan cerita dari anak itu sendiri. Kalau perlu menyinggung kemungkinan perspektif anak, gunakan frasa seperti "anak mungkin merasa..., meski ini belum dikonfirmasi dari sisi anak."
+        - \(cautiousLanguageRule)
+        - \(autonomySupportiveRule)
+        - \(dataNotJudgmentRule)
+        - \(personalityRule(childName: name)) (berlaku untuk summary dan key_insight)
+        - \(quoteRule)
         - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.
         """
     }
@@ -325,6 +490,31 @@ enum PromptBuilder {
     /// actually work in production (per-log, not per-family).
     static func representativeLog(_ data: DummyDataset) -> EmotionLog {
         data.emotionLogs.first(where: { $0.journal?.isEmpty == false }) ?? data.emotionLogs[0]
+    }
+
+    /// Adapts the benchmark's DummyDataset (no isSpecific/confidence fields
+    /// in the fixture) to overviewPrompt's tagged params. isSpecific is
+    /// placeholder-false throughout — same caveat as generate-overview's
+    /// TS caller, no has_cognitive_mechanism classifier exists yet.
+    static func overviewPrompt(_ data: DummyDataset) -> String {
+        let taggedLogs = data.emotionLogs.map { TaggedEmotionLog(log: $0, isSpecific: false) }
+        let taggedInteractions = data.parentContext.recentInteractions.map {
+            TaggedParentInteraction(interaction: $0, isSpecific: false)
+        }
+        let taggedReflections = data.parentContext.parentLogs.map {
+            TaggedParentReflection(reflection: $0, isSpecific: false)
+        }
+        return overviewPrompt(
+            logs: taggedLogs,
+            interactions: taggedInteractions,
+            reflections: taggedReflections,
+            childName: firstName(data.child.name),
+            childConfidenceTier: deriveConfidenceTier(entryCount: taggedLogs.count, specificEntryCount: 0),
+            parentConfidenceTier: deriveConfidenceTier(
+                entryCount: taggedInteractions.count + taggedReflections.count,
+                specificEntryCount: 0
+            )
+        )
     }
 
     static func prompt(for task: BenchmarkTask, data: DummyDataset) -> String {

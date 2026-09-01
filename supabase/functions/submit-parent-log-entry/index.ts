@@ -15,6 +15,11 @@ import type { LogContextField } from "../_shared/prompts.ts";
 interface AnswerInput {
   field: LogContextField;
   source: "main" | "followup";
+  // 0 = the anchor question, 1/2 = chained followups — see
+  // 20260830000001_guided_journal_chain_flow.sql. Replaces (field, source)
+  // as the per-entry uniqueness key now that a chain can produce two
+  // followup rows sharing the same field.
+  sequence: number;
   question_text: string;
   answer_text: string;
 }
@@ -93,6 +98,7 @@ Deno.serve(async (req: Request) => {
         parent_log_entry_id: entry.id,
         field: a.field,
         source: a.source,
+        sequence: a.sequence,
         question_text: a.question_text,
         answer_text: a.answer_text,
       })),

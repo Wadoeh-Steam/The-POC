@@ -70,7 +70,15 @@ enum ServerOpenRouter {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 180
+        // 45s, not 180s — the old 3-minute timeout meant a single bad/slow
+        // provider (rate-limited, wrong key, dead network) could stall the
+        // 3-provider × 4-task fallback chain for up to 36 minutes with the
+        // UI showing nothing but disabled buttons — indistinguishable from
+        // a real freeze (reported live, 2026-08-25: "app freeze tiap kali
+        // tes server"). 45s still gives the free-tier model's occasional
+        // slow/reasoning-heavy response room, without making one stuck
+        // provider look like a hang.
+        request.timeoutInterval = 45
 
         // `/no_think` — Nemotron-specific system-prompt convention (not a
         // generic OpenRouter API param) to disable its chain-of-thought

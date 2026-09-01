@@ -64,6 +64,16 @@ enum HumanLabels {
         case "low": return "Rendah"
         case "moderate": return "Sedang"
         case "high": return "Tinggi"
+        case "building": return "Berkembang"
+        default: return raw.capitalized
+        }
+    }
+
+    static func communicationPatternLabel(_ raw: String) -> String {
+        switch raw {
+        case "bald_on_record": return "Perintah Langsung"
+        case "autonomy_supportive": return "Mendukung Otonomi"
+        case "unclear": return "Belum Jelas"
         default: return raw.capitalized
         }
     }
@@ -381,14 +391,27 @@ struct TaskOutputView: View {
                 QuoteAwareText(text: summary).font(.caption)
             }
             if let patterns = overview["patterns"] as? [[String: Any]], !patterns.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(patterns.enumerated()), id: \.offset) { _, p in
                         if let topic = p["topic"] as? String, let obs = p["observation"] as? String {
-                            HStack(alignment: .top, spacing: 4) {
-                                Text("•")
-                                Text("\(topic): \(obs)")
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(alignment: .top, spacing: 4) {
+                                    Text("•")
+                                    Text("\(topic): \(obs)")
+                                }
+                                .font(.caption)
+                                if let approach = p["suggested_approach"] as? String, !approach.isEmpty {
+                                    HStack(alignment: .top, spacing: 4) {
+                                        Image(systemName: "arrow.turn.down.right")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Text(approach)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.leading, 12)
+                                }
                             }
-                            .font(.caption)
                         }
                     }
                 }
@@ -406,6 +429,53 @@ struct TaskOutputView: View {
                     Text("⚠️ Kemungkinan ada gap pemahaman antara orang tua & anak")
                         .font(.caption2)
                         .foregroundStyle(.orange)
+                }
+            }
+            if let confidence = overview["data_confidence"] as? [String: Any] {
+                HStack(spacing: 10) {
+                    if let child = confidence["child"] as? String {
+                        signalBadge("Confidence anak", HumanLabels.levelLabel(child))
+                    }
+                    if let parent = confidence["parent"] as? String {
+                        signalBadge("Confidence ortu", HumanLabels.levelLabel(parent))
+                    }
+                }
+            }
+            if let commStyle = overview["communication_style"] as? [String: Any] {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let pattern = commStyle["detected_pattern"] as? String {
+                        signalBadge("Gaya komunikasi", HumanLabels.communicationPatternLabel(pattern))
+                    }
+                    if let before = commStyle["example_before"] as? String,
+                       let after = commStyle["example_after"] as? String {
+                        // VStack (label above, value below), not HStack —
+                        // two Text views sharing an HStack compete for
+                        // intrinsic width and SwiftUI truncates the second
+                        // instead of wrapping it. `.fixedSize(horizontal:
+                        // false, vertical: true)` on the value Text is
+                        // still needed even after that fix — nested inside
+                        // this many VStacks, SwiftUI's compression
+                        // resistance still proposed less height than 2+
+                        // lines needs and silently truncated with "…"
+                        // instead of wrapping (observed live in the
+                        // Simulator, 2026-08-25, even post-VStack-fix:
+                        // "...dirapiin sebelum mak…").
+                        VStack(alignment: .leading, spacing: 6) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Sebelum:").font(.caption2.bold()).foregroundStyle(.secondary)
+                                Text(before).font(.caption2.italic())
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Sesudah:").font(.caption2.bold()).foregroundStyle(.green)
+                                Text(after).font(.caption2.italic())
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(6)
+                        .background(Color.green.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
                 }
             }
             if let insight = overview["key_insight"] as? String {
