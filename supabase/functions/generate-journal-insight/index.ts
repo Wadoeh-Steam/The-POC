@@ -6,9 +6,16 @@
 // Answer/submit — the parent sees a short "kesimpulan + validasi emosi"
 // reflection before deciding to send.
 //
-// Same in-memory-only rule as evaluate-parent-log-followup: nothing is
-// persisted by this call, it only reasons over the Q&A pairs the client
-// passes in. submit-parent-log-entry remains the only write.
+// 2026-09-03: the client now calls this AFTER submit-parent-log-entry
+// (once it has the real parent_log_entry_id) and passes it as `entry_id`.
+// When present, the generated insight is persisted onto that row
+// (insight_text) so DailyLogListView/DashboardView can show the same
+// insight again later — before this, nothing was ever persisted and a
+// past entry's insight was unrecoverable once the in-memory
+// PromptStepViewModel from that submission was gone. `entry_id` stays
+// optional and persistence stays best-effort (see the catch below) so a
+// write hiccup here never blocks the insight from being returned/shown
+// on the spot, same as the rest of this function's fail-open posture.
 
 import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
@@ -29,6 +36,7 @@ const TOTAL_BUDGET_MS = 8000;
 interface RequestBody {
   child_name: string;
   qa_pairs: { question_text: string; answer_text: string }[];
+  entry_id?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -66,6 +74,21 @@ Deno.serve(async (req: Request) => {
     }, TOTAL_BUDGET_MS);
 
     const parsed = parseJsonResponse<JournalInsightResult>(result.text);
+
+    if (body.entry_id) {
+      const insightText = `${parsed.kesimpulan} ${parsed.validasi_emosi}`;
+      const { error: updateError } = await supabase
+        .from("parent_log_entries")
+        .update({ insight_text: insightText })
+        .eq("id", body.entry_id);
+      // Best-effort — a failed save here must not turn an already-generated
+      // insight into an error response; it just won't be there to re-view
+      // later. RLS (parent_log_entries_update_own) means a bad/foreign
+      // entry_id simply matches zero rows, not an error.
+      if (updateError) {
+        console.error("generate-journal-insight: failed to persist insight_text", updateError);
+      }
+    }
 
     return jsonResponse({
       kesimpulan: parsed.kesimpulan,

@@ -296,6 +296,18 @@ Kalau di catatan interaksi orang tua ada kalimat yang sifatnya perintah langsung
 const DATA_NOT_JUDGMENT_RULE_ID =
   `Sajikan setiap "observation" sebagai POLA DARI DATA yang tercatat, bukan penilaian ke orang tua. Bukan "kamu terlalu memaksa soal beres-beres", tapi "pola yang tercatat: percakapan soal beres-beres di hari Kamis cenderung diikuti penurunan mood anak". Kalau ada pola waktu/hari/topik yang jelas kelihatan dari data, sebutkan spesifik (hari, topik) — itu yang bikin suggested_approach kerasa actionable, bukan generik. Jangan mengarang pola yang tidak benar-benar didukung datanya.`;
 
+// User request 2026-09-03: catatan orang tua sering nyebut sumber stres yang
+// gak ada hubungannya sama anak sama sekali (kerjaan, ekonomi, politik) —
+// tanpa pengingat eksplisit, output cuma nge-analisis pola komunikasi tanpa
+// pernah bilang "ini masalah kamu, bukan masalah anak, jangan sampai
+// nular". Ini beda dari AUTONOMY_SUPPORTIVE_RULE_ID (yang soal cara ngomong
+// ke anak) — ini soal SUMBER emosinya yang keliru disalurkan ke anak sama
+// sekali. Digabung dengan pengingat kehadiran fisik karena keduanya sering
+// satu paket: orang tua yang lagi kewalahan sama masalah luar cenderung
+// menarik diri secara fisik dari anak juga, bukan cuma jadi gampang marah.
+const PROTECT_CHILD_FROM_SPILLOVER_RULE_ID =
+  `Kalau catatan orang tua nunjukkin sumber stres/kekesalan yang TIDAK ada hubungannya sama anak (pekerjaan, kondisi ekonomi, situasi politik/pemerintah, masalah pribadi lain di luar rumah), jangan biarkan itu lewat tanpa disinggung: sisipkan pengingat eksplisit di "suggested_approach" (atau di "key_insight" kalau patterns kosong/minim) bahwa masalah itu bukan tanggung jawab atau urusan anak, dan orang tua perlu sadar diri supaya kekesalan itu TIDAK jadi pemicu awal konflik saat lagi sama anak (misal nada bicara jadi lebih ketus, atau gampang marah ke hal kecil yang biasanya bukan masalah). Barengi juga dengan ajakan konkret buat tetap berusaha hadir secara fisik/nyata ke anak walau lagi capek atau kepikiran masalah lain — jangan sampai anak jadi kena imbas orang tua yang menarik diri karena banyak pikiran. Kalau tidak ada indikasi sumber stres dari luar hubungan orang tua-anak di data, JANGAN memaksakan poin ini — cukup kalau memang ada dasarnya di catatan.`;
+
 // isSpecific mirrors the same has_cognitive_mechanism test as §5/§6 (see
 // COGNITIVE_MECHANISM_RULE_ID) — applied here to the child's own logs and
 // the parent's interactions/reflections, not just the be1 guided journal.
@@ -350,6 +362,12 @@ export function buildOverviewPrompt(
     guidedJournalEntries.filter((e) => e.isSpecific).length;
   return `Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi, DAN memberi penyesuaian komunikasi yang konkret, spesifik, dan low-effort untuk minggu ini. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati, dan pindah dari nasihat satu arah ke memvalidasi perasaan anak dulu.
 
+CARA MIKIR: pakai metode coaching GROW (Goal - Reality - Options - Will) buat nyusun isi output-nya. Field JSON-nya TETAP PERSIS seperti struktur di bawah — GROW ini bukan field baru, tapi urutan LOGIKA yang harus kamu jalanin di kepala sebelum nulis tiap field:
+- GOAL: sebelum nulis apapun, simpulkan dulu (buat diri sendiri, gak perlu ditulis terpisah) — dari data minggu ini, orang tua ini kelihatannya PENGEN capai apa dalam hubungannya sama anak (dipahami anaknya, komunikasi lebih tenang, anak lebih terbuka cerita, dll)? Ini jadi ARAH yang mewarnai key_insight dan suggested_approach — biar sarannya nyambung ke apa yang orang tua ini sebenernya kejar, bukan saran generik.
+- REALITY: summary dan patterns[].observation HARUS murni menggambarkan kondisi NYATA berdasarkan data minggu ini — apa yang beneran kejadian/kelihatan di catatan, bukan asumsi, harapan, atau kesimpulan yang kejauhan dari datanya.
+- OPTIONS: sebelum nentuin suggested_approach, pertimbangin dulu (di kepala, gak perlu ditulis) minimal 2 pendekatan komunikasi yang beda buat situasi ini (misal: validasi perasaan dulu vs kasih ruang dulu ke anak) — JANGAN langsung lompat ke ide pertama yang kepikiran.
+- WILL: suggested_approach adalah HASIL dari proses OPTIONS di atas — pilih SATU langkah paling konkret, paling low-effort, dan paling REALISTIS beneran dilakuin orang tua minggu depan (bukan sekadar ide bagus di atas kertas), bukan daftar beberapa opsi sekaligus.
+
 Data minggu ini:
 - Anak: ${logs.length} catatan, ${childSpecificCount} di antaranya spesifik. Confidence: ${childConfidenceTier}.
 - Orang tua: ${parentEntryCount} catatan, ${parentSpecificCount} di antaranya spesifik. Confidence: ${parentConfidenceTier}.
@@ -388,7 +406,7 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
       "child": "<gunakan nilai yang diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>",
       "parent": "<gunakan nilai yang diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>"
     },
-    "key_insight": "<1 kalimat pendek yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta>"
+    "key_insight": "<TEPAT 1 kalimat pendek (bukan paragraf, bukan 2-3 kalimat) yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta. JANGAN merangkum ulang 'summary' dengan kata lain — kalau 'summary' udah nyebut sebuah pola, 'key_insight' harus gali SATU sudut yang belum disebut di situ (mis. asumsi tersembunyi, atau implikasi dari pola itu), bukan restate pola yang sama. Ini REFLEKSI, BUKAN saran aksi atau skrip kalimat buat diomongin ke anak — itu jatahnya suggested_approach, bukan di sini, bahkan kalau patterns kosong/minim.>"
   }
 }
 
@@ -399,9 +417,11 @@ Aturan:
 - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
 - Catatan yang ditandai [general] adalah sinyal LEMAH, bukan sinyal kosong. Jangan jadikan catatan [general] sebagai dasar utama sebuah "pola" — tapi tetap boleh disebut sebagai konteks. Dasarkan klaim pola terutama pada catatan [spesifik].
 - Kalau data_confidence.child adalah "low" — biasanya karena catatan anak minggu ini cuma 1-2 kali, atau sebagian besar [general] — JANGAN klaim adanya "pola" dari sisi anak. Cukup deskripsikan apa yang ada apa adanya (misal "baru ada satu catatan minggu ini, belum cukup untuk melihat pola"), dan child_openness/possible_misalignment harus mencerminkan keterbatasan ini, bukan disimpulkan seolah datanya lengkap.
+- JANGAN kompensasi patterns yang kosong/minimal dengan nyelipin saran konkret atau skrip kalimat ("kamu bisa bilang ke anakmu...") ke dalam key_insight — itu ngelanggar batas GROW-nya (key_insight = REALITY/GOAL, suggested_approach = WILL). Kalau data belum cukup buat suggested_approach yang solid, biarkan patterns kosong/minim DAN key_insight tetap reflektif/ringan — jangan dipaksain jadi actionable.
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
 - ${AUTONOMY_SUPPORTIVE_RULE_ID}
 - ${DATA_NOT_JUDGMENT_RULE_ID}
+- ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
 - ${QUOTE_RULE_ID}
 - Pertimbangkan perspektif anak maupun orang tua.
@@ -488,6 +508,7 @@ export interface ReflectionResult {
     title: string;
     description: string;
     based_on: string;
+    starter: string | null;
   }[];
 }
 
@@ -513,7 +534,8 @@ Buat 2-3 rekomendasi refleksi singkat sebagai JSON saja, persis bentuk ini:
     {
       "title": "<judul singkat, netral>",
       "description": "<1 kalimat singkat saran refleksi/tindakan untuk orang tua, hati-hati>",
-      "based_on": "<1 frasa singkat pola apa dari data yang mendasari rekomendasi ini>"
+      "based_on": "<1 frasa singkat pola apa dari data yang mendasari rekomendasi ini>",
+      "starter": "<1 kalimat pembuka konkret yang bisa langsung diucapkan orang tua ke anak, atau null kalau rekomendasi ini bukan soal ngobrol langsung>"
     }
   ]
 }
@@ -522,8 +544,9 @@ Aturan:
 - Rekomendasi berupa ajakan refleksi/percakapan, bukan instruksi medis atau psikologis.
 - Dasarkan pada pola berulang, bukan kejadian tunggal.
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
+- ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk description)
-- ${QUOTE_RULE_ID}
+- ${QUOTE_RULE_ID} (berlaku untuk "starter" kalau diisi)
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
 }
 
@@ -540,8 +563,84 @@ export const REFLECTION_JSON_SCHEMA = {
             title: { type: "string" },
             description: { type: "string" },
             based_on: { type: "string" },
+            starter: { type: ["string", "null"] },
           },
-          required: ["title", "description", "based_on"],
+          required: ["title", "description", "based_on", "starter"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["recommendations"],
+    additionalProperties: false,
+  },
+};
+
+// Parent-only variant (no child profile in the family yet, ARCHITECTURE.md
+// §3b) — same rationale as buildParentOnlyOverviewPrompt: buildReflectionPrompt
+// assumes real child-side data to weigh against the parent's own, and has
+// no basis to stand on with zero child data. Wired in alongside
+// generate-reflection's hasChild branch.
+export interface ParentOnlyReflectionResult {
+  recommendations: {
+    title: string;
+    description: string;
+    based_on: string;
+    starter: string | null;
+  }[];
+}
+
+export function buildParentOnlyReflectionPrompt(
+  entries: ParentLogEntryForPrompt[],
+  confidenceTier: ConfidenceTier,
+): string {
+  const specificCount = entries.filter((e) => e.isSpecific).length;
+  return `Kamu adalah pelatih pribadi yang empatik untuk orang tua. Berdasarkan seluruh riwayat catatan refleksi orang tua sendiri (belum ada data dari anak sama sekali), berikan rekomendasi refleksi untuk membantu orang tua membangun kosakata emosi dan pola komunikasi yang lebih autonomy-supportive SEBELUM mempraktikkannya ke anak.
+
+Data: ${entries.length} catatan orang tua, ${specificCount} di antaranya spesifik. Confidence level: ${confidenceTier}.
+
+Seluruh riwayat catatan orang tua (ditandai [spesifik] atau [general] per catatan):
+${compactParentLogEntries(entries)}
+
+Buat 2-3 rekomendasi refleksi singkat sebagai JSON saja, persis bentuk ini:
+
+{
+  "recommendations": [
+    {
+      "title": "<judul singkat, netral>",
+      "description": "<1 kalimat singkat, sapa 'kamu' langsung, saran refleksi untuk pola KAMU sendiri, hati-hati>",
+      "based_on": "<1 frasa singkat pola apa dari catatan kamu yang mendasari rekomendasi ini>",
+      "starter": "<1 kalimat pembuka konkret yang bisa kamu ucapkan ke anak kalau rekomendasi ini soal ngobrol langsung, atau null kalau bukan>"
+    }
+  ]
+}
+
+Aturan:
+- Tulis title, description, dan based_on dengan menyapa pembaca sebagai "kamu" secara LANGSUNG, bukan "orang tua" di orang ketiga.
+- Rekomendasi berupa ajakan refleksi/percakapan untuk KAMU, bukan instruksi medis atau psikologis, dan JANGAN mendeskripsikan perasaan/niat anak sebagai fakta — kamu belum punya data dari anak sama sekali.
+- Dasarkan pada pola berulang di catatan kamu, bukan kejadian tunggal. Catatan [general] adalah sinyal lemah — dasarkan klaim pola terutama pada catatan [spesifik].
+- Kalau confidence "low", jangan klaim pola kuat — cukup 1-2 rekomendasi ringan berdasarkan apa yang ada.
+- ${CAUTIOUS_LANGUAGE_RULE_ID}
+- ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
+- ${QUOTE_RULE_ID} (berlaku untuk "starter" kalau diisi)
+- Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
+}
+
+export const PARENT_ONLY_REFLECTION_JSON_SCHEMA = {
+  name: "parent_only_reflection_recommendations",
+  schema: {
+    type: "object",
+    properties: {
+      recommendations: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            based_on: { type: "string" },
+            starter: { type: ["string", "null"] },
+          },
+          required: ["title", "description", "based_on", "starter"],
           additionalProperties: false,
         },
       },
@@ -576,14 +675,25 @@ export interface FollowupEvaluationResult {
 // on a "shallow vs deep" classification anymore. User feedback
 // (2026-09-01): a conditional gate meant the chain sometimes stopped
 // after just the anchor, and the last question she did get didn't read as
-// a real close ("nggak ngasih closing yang fulfilling"). followupNumber 1
-// digs into WHY; 2 is the deliberate close (impact/what's next), not
-// another "kenapa" — that's what makes it feel resolved instead of cut off.
+// a real close ("nggak ngasih closing yang fulfilling").
+//
+// Mapped onto GROW coaching (2026-09-04) — same framework as
+// buildParentOnlyOverviewPrompt's GROW usage: an internal reasoning order
+// the model works through, not separate output fields. The anchor
+// question is already the parent's opening REALITY, so with only 2
+// follow-up slots left: #1 digs deeper into REALITY (concrete action)
+// while also surfacing the parent's own GOAL for that moment — knowing
+// the goal is what lets #2 land a real WILL-question instead of another
+// "kenapa". #2 weighs OPTIONS internally (>=2 different things the parent
+// could try) before committing to ONE concrete WILL-question, mirroring
+// the overview prompt's OPTIONS-then-WILL rule.
 function followupStageInstruction(followupNumber: 1 | 2): string {
   if (followupNumber === 1) {
-    return `Follow-up ini gali KENAPA — ajak orang tua cerita alasan/penyebab di balik apa yang baru diceritakan. Contoh: "Kira-kira kenapa kamu ngerasa begitu?", "Menurut kamu apa yang bikin itu kejadian?"`;
+    return `Follow-up ini gali REALITY lewat AKSI KONKRET orang tua, DAN sekaligus mancing GOAL-nya — bukan alasan abstrak kayak "kenapa kamu ngerasa begitu" (kelewat generic). Tanya apa yang orang tua BILANG/LAKUKAN saat itu, atau apa yang sebenarnya dia harapkan terjadi di momen itu — pilih salah satu sudut yang paling pas sama ceritanya. Contoh REALITY (cerita nyinggung anak): "Kamu ngomong atau ngelakuin apa ke dia waktu itu?" Contoh GOAL (cerita nyinggung anak): "Sebenernya kamu berharap momen itu berakhir kayak gimana?" Contoh REALITY (cerita murni pribadi, gak nyinggung anak sama sekali): "Abis berhasil gitu, ngapain aja buat ngerayain momennya?"`;
   }
-  return `Follow-up ini PENUTUP obrolan — JANGAN tanya "kenapa" lagi (udah ditanya di follow-up sebelumnya). Ajak refleksi ke DAMPAK atau LANGKAH KE DEPAN biar obrolannya kerasa selesai, bukan gantung. Contoh: "Terus itu ngaruh ke gimana kamu liat dia sekarang?", "Ada yang pengen kamu coba beda abis ini?"`;
+  return `Follow-up ini PENUTUP obrolan — tahap WILL. Sebelum nulis pertanyaannya, pertimbangin dulu (di kepala, gak perlu ditulis) minimal 2 langkah/pendekatan beda yang bisa orang tua coba — OPTIONS-nya — baru pilih SATU yang paling konkret buat jadi dasar pertanyaan, bukan daftar beberapa opsi sekaligus.
+
+WAJIB: pertanyaannya harus soal KE DEPAN (rencana/langkah/perubahan berikutnya), BUKAN soal apa yang udah/lagi dirasain. Cek dulu sebelum nulis: kalau jawabannya bisa berupa deskripsi PERASAAN di momen yang udah lewat ("ngerasa gimana", "gimana rasanya waktu itu", "ngerasa lega/senang/dst"), itu SALAH — ulang lagi, ini bukan follow-up 1. JANGAN tanya "kenapa"/alasan lagi, dan JANGAN tanya perasaan di momen yang udah kejadian (itu udah kegali di follow-up sebelumnya). Pertanyaan HARUS eksplisit ngarah ke masa depan — pakai penanda kayak "ke depan"/"lain kali"/"kalau ada momen kayak ini lagi"/"selanjutnya" — dan minta orang tua cerita PERUBAHAN SIKAP/PERILAKU konkret yang mau dicoba, biar obrolannya kerasa selesai, bukan gantung. Contoh BENAR (nyinggung anak): "Abis itu, kamu jadi beda gimana pas ngadepin dia?" / "Lain kali ada momen kayak ini, ada yang pengen kamu coba beda?" Contoh BENAR (murni pribadi): "Ada yang pengen kamu lakuin lagi abis ngerasain momen kayak gini?" Contoh SALAH (JANGAN kayak gini — ini nanya perasaan di masa lalu, bukan WILL): "Kamu ngerasa gimana pas liat itu terjadi?"`;
 }
 
 export function buildFollowupEvaluationPrompt(
@@ -597,6 +707,8 @@ export function buildFollowupEvaluationPrompt(
 
   return `Kamu bantu lanjutin obrolan guided journal (catatan reflektif harian) orang tua.
 
+GAYA BAHASA: pakai Bahasa Indonesia sehari-hari yang paling umum/lazim dipakai orang ngobrol biasa — kayak lagi chat sama temen deket, BUKAN nulis esai/sastra. Kalau ada beberapa pilihan kata buat hal yang sama, SELALU pilih yang paling umum/gampang dikenali orang awam — JANGAN "gambling" nyoba kata yang jarang dipakai sehari-hari meski itu benar secara tata bahasa, karena malah kedengeran dibuat-buat/sok sastra, bukan kedengeran manusiawi. Contoh: pakai "ngerasain"/"ngerasa", BUKAN "merasai"; pakai "ngomong"/"bilang", BUKAN "berujar"/"bertutur"; pakai "abis"/"habis", BUKAN "seusai"/"kelar". Kalau ragu antara dua kata, pilih yang lebih pendek dan lebih sering kedengeran di obrolan sehari-hari.
+
 Pertanyaan sebelumnya: "${questionText}"
 Jawaban orang tua: "${answerText}"
 
@@ -607,12 +719,19 @@ Tugas 2 — Follow-up:
 ${followupStageInstruction(followupNumber)}
 Ambil KATA KUNCI dari jawaban orang tua sendiri biar berasa nyambung, bukan pertanyaan generik. Lebih baik pertanyaan TERBUKA daripada pilihan A-atau-B. JANGAN pakai sapaan formal seperti "Bu/Pak", "Ibu/Bapak".
 
+Pertanyaan HARUS straightforward, spesifik, satu kalimat pendek — jangan bertele-tele atau muter-muter dulu sebelum ke poinnya. Selalu dari POV orang tua: minta dia cerita SIKAP/REAKSI/PERILAKU dia sendiri (kata-kata, tindakan, ekspresi emosi), bukan nanya perasaan secara umum.
+- ❌ Jangan nanya "gimana perasaanmu?" — nanyain well-being tapi generic, gak spesifik ke orang tuanya.
+- ❌ Jangan nanya perasaan/pikiran anak langsung ("anaknya ngerasa gimana?") — butuh data anak yang orang tua gak bisa jawab akurat, dan lompat ke anak duluan instead of orang tuanya.
+- ✅ Nanya "kamu bersikap/bereaksi gimana ke [siapapun/apapun yang RELEVAN di cerita]?" — bisa dijawab murni dari sisi orang tua (dia yang describe kata-kata, reaksi, emosi dia sendiri).
+- ❌ JANGAN karang-karang ada "dia"/"anaknya" kalau jawaban orang tua di atas SAMA SEKALI gak nyebut/nyinggung anak — misal cerita soal pencapaian pribadi (lari 10k, kerjaan, kesehatan) yang murni tentang orang tua sendiri. Maksa nyelipin "ke dia" di situ bikin pertanyaan kerasa aneh/nyasar, karena "dia" yang dimaksud gak pernah ada di ceritanya. Cek dulu: kalau anak beneran ada di jawaban orang tua, boleh sebut anak; kalau enggak, tetap gali AKSI/REAKSI orang tua tapi TANPA nyebut anak sama sekali.
+
 Tugas 3 — Sinyal krisis:
 Tandai true HANYA jika jawaban menunjukkan indikasi serius menyakiti diri sendiri, keinginan bunuh diri, atau bahaya langsung terhadap keselamatan. Jangan tandai true untuk emosi negatif biasa (capek, sedih, stres).
 
-Contoh:
-- [follow-up ke-1, gali kenapa] Jawaban: "Aku capek banget ngurusin dia hari ini." -> afirmasi: "Kedengerannya hari ini berat banget ya." ; follow-up: "Kira-kira apa yang bikin paling capek, coba cerita?"
-- [follow-up ke-2, penutup] Jawaban: "Soalnya dia susah banget diomongin, tiap saran ditolak." -> afirmasi: "Oke, jadi rasanya kayak usaha kamu belum nyampe ke dia ya." ; follow-up: "Kalau boleh tau, kamu pengen hubungan kalian jadi kayak gimana ke depannya?"
+Contoh (perhatiin openernya beda-beda tiap contoh — JANGAN selalu mulai dengan "Pas..." kayak template, variasiin sesuai konteks jawabannya):
+- [follow-up ke-1, gali kenapa lewat aksi konkret, cerita nyinggung anak] Jawaban: "Aku capek banget ngurusin dia hari ini." -> afirmasi: "Kedengerannya hari ini berat banget ya." ; follow-up: "Kamu tadi ngomong atau ngelakuin apa ke dia pas lagi capek gitu?"
+- [follow-up ke-2, penutup lewat perubahan sikap, cerita nyinggung anak] Jawaban: "Aku jadi kesel terus keceplosan bentak dia." -> afirmasi: "Oke, jadi rasanya abis itu ngerasa gak enak sendiri ya." ; follow-up: "Abis kejadian itu, ada cara beda yang pengen kamu coba pas ngadepin dia?"
+- [follow-up ke-1, gali kenapa lewat aksi konkret, cerita MURNI PRIBADI — jangan karang anak] Jawaban: "Aku baru aja beresin lari 10k, seneng banget dan takjub sama diri sendiri." -> afirmasi: "Wah, berhasil 10k! Itu keren banget!" ; follow-up: "Abis berhasil itu, ngapain aja buat ngerayain momennya?" (BUKAN nanya "kamu ngomong apa ke dia" — gak ada "dia" di cerita ini sama sekali)
 
 Output HARUS JSON valid, tanpa markdown, persis bentuk ini:
 {
@@ -664,21 +783,43 @@ export function buildJournalInsightPrompt(
   // for the same reason: composes into personalityRuleId's instructions
   // ("Sebut anakmu di tengah kalimat...") without needing a real name.
   const name = firstName(childName.trim() || "anakmu");
-  const transcript = qaPairs.map((qa) => `T: ${qa.question}\nJ: ${qa.answer}`).join("\n\n");
-  return `Kamu asisten keluarga yang empatik. Orang tua baru saja mengisi guided journal singkat soal harinya. Berikut percakapannya:
+  // Full words, not "T:"/"J:" (Tanya/Jawab) — single-letter speaker labels
+  // read to the free-tier model as two people's initials, and it echoed
+  // them into the summary as characters in the story ("T merasa bangga
+  // karena berhasil membantu J...") instead of understanding them as a
+  // question/answer transcript convention. Root-caused live 2026-09-01.
+  const transcript = qaPairs.map((qa) => `Pertanyaan: ${qa.question}\nJawaban: ${qa.answer}`).join("\n\n");
+  // Root-caused live 2026-09-01 alongside the T:/J: bug — two more failure
+  // modes on the free-tier model, both from the same underlying gap (the
+  // prompt never said WHO the subject of the story is): (1) it invented a
+  // third-person "name" out of a stray capitalized word in an answer
+  // ("TENGAH mengalami fase...", from the parent writing "tengah sibuk"),
+  // and (2) on an entry that was actually about the PARENT's own day (work
+  // debugging), it guessed the subject was the child instead ("Anakmu
+  // berhasil menyelesaikan debugging...") since a journal CAN be about the
+  // child, but isn't always. Also ignored the "1-2 kalimat" length limit
+  // outright (5 sentences, restating the same idea 3 ways). Fixed by
+  // stating explicitly up front that the parent is always the subject
+  // unless they say otherwise, banning invented names, and making the
+  // length/repetition/specificity rules impossible to miss.
+  return `Kamu asisten keluarga yang empatik. SATU orang tua baru saja mengisi guided journal reflektif tentang harinya sendiri. Topiknya bisa APA SAJA — soal dirinya sendiri, pekerjaan, teman, tidur, ATAU soal anaknya — tergantung apa yang beneran dia ceritakan di jawaban di bawah. Orang tua ini SELALU jadi subjek utama cerita (sebut dia "kamu") — JANGAN asumsikan ceritanya soal anaknya kecuali dia beneran bilang begitu.
+
+Berikut percakapannya:
 
 ${transcript}
 
 Buat ringkasan singkat sebagai JSON saja, persis bentuk ini:
 {
-  "kesimpulan": "<1-2 kalimat singkat, hati-hati, merangkum apa yang diceritakan orang tua>",
-  "validasi_emosi": "<1-2 kalimat yang mengakui/memvalidasi perasaan orang tua sebagai hal yang wajar, bukan menilai>"
+  "kesimpulan": "<MAKSIMAL 2 kalimat, hati-hati, merangkum apa yang beneran diceritakan orang tua — sebut dia "kamu", bukan orang ketiga>",
+  "validasi_emosi": "<MAKSIMAL 2 kalimat yang mengakui perasaan orang tua, merujuk ke detail KONKRET dari jawabannya di atas — bukan generalisasi umum kayak "wajar kalau orang ngerasa gitu">"
 }
 
 Aturan:
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
 - ${personalityRuleId(name)}
-- Sebut ${name} HANYA kalau jawaban orang tua di atas emang nyeritain soal ${name} atau interaksi sama ${name}. Kalau topiknya soal hal lain (pekerjaan, tidur, kondisi diri sendiri, dll), jangan dipaksain nyebut ${name} sama sekali.
+- JANGAN mengarang atau menganggap kata/frasa apapun dari jawaban di atas sebagai nama orang lain (termasuk inisial atau kata biasa yang kebetulan ditulis huruf besar) — orang yang cerita di sini cuma satu: "kamu" (orang tua).
+- Sebut ${name} HANYA kalau jawaban orang tua di atas emang nyeritain soal ${name} atau interaksi sama ${name}. Kalau topiknya soal hal lain (pekerjaan, tidur, kondisi diri sendiri, teman, dll), jangan dipaksain nyebut ${name} sama sekali.
+- MAKSIMAL 2 kalimat per field, TIDAK BOLEH lebih. Jangan mengulang ide yang sama pakai kata berbeda — satu insight yang padat, bukan beberapa variasi kalimat yang bilang hal serupa.
 - Jangan menyimpulkan lebih dari yang benar-benar tersirat dari jawaban di atas.
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
 }
@@ -780,6 +921,12 @@ export function buildParentOnlyOverviewPrompt(
   const specificCount = entries.filter((e) => e.isSpecific).length;
   return `Kamu adalah pelatih pribadi yang empatik untuk orang tua. Tugasmu menganalisis catatan refleksi orang tua sendiri (minggu ini) untuk membantu mereka membangun kosakata emosi dan pola komunikasi yang lebih autonomy-supportive — SEBELUM mereka mempraktikkannya ke anak. Kamu TIDAK punya data dari anak sama sekali di tahap ini, jadi jangan pernah membuat klaim atau tebakan pasti tentang perasaan atau sudut pandang anak.
 
+CARA MIKIR: pakai metode coaching GROW (Goal - Reality - Options - Will) buat nyusun isi output-nya. Field JSON-nya TETAP PERSIS seperti struktur di bawah — GROW ini bukan field baru, tapi urutan LOGIKA yang harus kamu jalanin di kepala sebelum nulis tiap field:
+- GOAL: sebelum nulis apapun, simpulkan dulu (buat diri sendiri, gak perlu ditulis terpisah) — dari catatan minggu ini, kamu ini kelihatannya lagi PENGEN capai apa (lebih tenang pas ngadepin anak, lebih ngerti kenapa dia bersikap begitu, dll)? Ini jadi ARAH yang mewarnai key_insight dan suggested_approach.
+- REALITY: summary dan patterns[].observation HARUS murni menggambarkan kondisi NYATA berdasarkan catatan kamu minggu ini — apa yang beneran kamu tulis, bukan asumsi atau kesimpulan yang kejauhan dari datanya.
+- OPTIONS: sebelum nentuin suggested_approach, pertimbangin dulu (di kepala, gak perlu ditulis) minimal 2 pendekatan komunikasi yang beda buat situasi ini — JANGAN langsung lompat ke ide pertama yang kepikiran.
+- WILL: suggested_approach adalah HASIL dari proses OPTIONS di atas — pilih SATU langkah paling konkret, paling low-effort, dan paling REALISTIS beneran bisa kamu coba minggu depan, bukan daftar beberapa opsi sekaligus.
+
 Data minggu ini: ${entries.length} catatan orang tua, ${specificCount} di antaranya spesifik (mengandung kata sebab-akibat/insight). Confidence level minggu ini: ${confidenceTier}.
 
 Catatan refleksi orang tua (minggu ini, ditandai [spesifik] atau [general] per catatan):
@@ -789,12 +936,12 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
 {
   "overview": {
     "headline": "<1 kalimat pendek, maks 10 kata, hati-hati>",
-    "summary": "<1-2 kalimat tentang pola yang muncul DI CATATAN ORANG TUA SENDIRI minggu ini — bukan tentang keadaan anak>",
+    "summary": "<1-2 kalimat, sapa 'kamu' langsung — tentang pola yang muncul di catatan KAMU sendiri minggu ini, bukan tentang keadaan anak>",
     "patterns": [
       {
         "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya",
-        "observation": "<1 kalimat pendek, hati-hati, tentang pola dalam cara orang tua bercerita atau bereaksi — sespesifik data-nya>",
-        "suggested_approach": "<1 kalimat: penyesuaian komunikasi konkret buat dicoba minggu depan, mulai dengan mengakui perasaan anak dulu>"
+        "observation": "<1 kalimat pendek, hati-hati, sapa 'kamu' langsung — tentang pola dalam cara kamu bercerita atau bereaksi, sespesifik data-nya>",
+        "suggested_approach": "<1 kalimat: penyesuaian komunikasi konkret buat kamu coba minggu depan, mulai dengan mengakui perasaan anak dulu>"
       }
     ],
     "parent_signal": {
@@ -807,19 +954,22 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
       "example_after": "<versi non-controlling-nya, atau null>"
     },
     "data_confidence": "<gunakan nilai confidence yang sudah diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>",
-    "key_insight": "<1 kalimat pendek tentang pola atau asumsi yang mungkin ada di cara orang tua memandang situasi ini, disampaikan sebagai kemungkinan untuk direnungkan — bukan sebagai penilaian, dan bukan klaim tentang apa yang sebenarnya dirasakan anak>"
+    "key_insight": "<TEPAT 1 kalimat pendek (bukan paragraf, bukan 2-3 kalimat), sapa 'kamu' langsung — JANGAN merangkum ulang 'summary' dengan kata lain. Kalau 'summary' udah nyebut sebuah pola, gali SATU sudut yang belum disebut di situ: sebuah asumsi tersembunyi atau implikasi dari pola itu, disampaikan sebagai kemungkinan untuk direnungkan — bukan sebagai penilaian, dan bukan klaim tentang apa yang sebenarnya dirasakan anak. Ini REFLEKSI (tahap REALITY/GOAL), BUKAN saran aksi atau skrip kalimat buat diomongin ke anak — itu jatahnya suggested_approach, bukan di sini, bahkan kalau patterns kosong.>"
   }
 }
 
 Aturan:
+- Tulis headline, summary, observation, dan key_insight dengan menyapa pembaca sebagai "kamu" secara LANGSUNG — JANGAN menyebut "orang tua" di orang ketiga seperti sedang membicarakan orang lain (pembaca INI ADALAH orang tua yang sama, jadi "orang tua mencatat tujuh perasaan..." harus jadi "kamu mencatat tujuh perasaan..."). "Orang tua" di data/aturan lain di atas cuma label sumber data, bukan cara menyapa di output.
 - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
 - Perlakukan catatan orang tua sebagai satu sisi cerita, bukan kebenaran objektif tentang anak.
 - Catatan yang ditandai [general] adalah sinyal LEMAH, bukan sinyal kosong. Jangan jadikan catatan [general] sebagai dasar utama sebuah "pola" atau key_insight — tapi tetap boleh disebut sebagai konteks. Dasarkan klaim pola terutama pada catatan [spesifik].
 - Kalau data_confidence yang diberikan adalah "low" (entah karena jumlah catatan sedikit, atau sebagian besar masih [general]), JANGAN klaim adanya pola yang kuat. Cukup deskripsikan apa yang ada secara ringan, dan biarkan patterns kosong atau minimal kalau memang datanya belum cukup untuk itu.
+- JANGAN kompensasi patterns yang kosong/minimal dengan nyelipin saran konkret atau skrip kalimat ("kamu bisa bilang ke anakmu...") ke dalam key_insight — itu ngelanggar batas GROW-nya (key_insight = REALITY/GOAL punya kamu sendiri, suggested_approach = WILL). Kalau data belum cukup buat suggested_approach yang solid, biarkan patterns kosong DAN key_insight tetap reflektif/ringan — jangan dipaksain jadi actionable.
 - JANGAN PERNAH mendeskripsikan perasaan, niat, atau sudut pandang anak sebagai fakta — kamu hanya punya cerita orang tua tentang anak, bukan cerita dari anak itu sendiri. Kalau perlu menyinggung kemungkinan perspektif anak, gunakan frasa seperti "anak mungkin merasa..., meski ini belum dikonfirmasi dari sisi anak."
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
 - ${AUTONOMY_SUPPORTIVE_RULE_ID}
 - ${DATA_NOT_JUDGMENT_RULE_ID}
+- ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
 - ${QUOTE_RULE_ID}
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;

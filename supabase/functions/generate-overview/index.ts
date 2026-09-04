@@ -10,13 +10,16 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { callLlmWithFallback, parseJsonResponse } from "../_shared/llm.ts";
 import {
   buildOverviewPrompt,
+  buildParentOnlyOverviewPrompt,
   deriveConfidenceTier,
   type EmotionLogForPrompt,
   type LogContextField,
   OVERVIEW_JSON_SCHEMA,
   type OverviewResult,
+  PARENT_ONLY_OVERVIEW_JSON_SCHEMA,
   type ParentInteractionForPrompt,
   type ParentLogEntryForPrompt,
+  type ParentOnlyOverviewResult,
   type ParentReflectionForPrompt,
 } from "../_shared/prompts.ts";
 
@@ -34,6 +37,44 @@ const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
 
 interface RequestBody {
   family_id: string;
+  period_start?: string;
+  period_end?: string;
+}
+
+type Pattern = { topic: string; observation: string; suggested_approach: string };
+
+// The model classifies each observation into one of 4 topic buckets
+// (Pendidikan|Pertemanan|Keluarga|Lainnya) independently per pattern, so
+// two genuinely distinct observations that happen to land in the same
+// bucket come back as two separate pattern entries — e.g. two different
+// school-related moments both tagged "Pendidikan". The client renders one
+// card per array entry with the topic as its header, so that read as two
+// identical-looking cards. Merge same-topic entries into one card here
+// (observations concatenated so neither is lost; suggested_approach kept
+// to the first one only — WILL/OPTIONS in the prompt already picks that
+// down to a single concrete step, concatenating two would turn it back
+// into a list). Root-caused live 2026-09-03 against Radit dev's real
+// generated overview (2 separate "Pendidikan" patterns).
+function mergePatternsByTopic(patterns: Pattern[]): Pattern[] {
+  const order: string[] = [];
+  const byTopic = new Map<string, Pattern[]>();
+
+  for (const p of patterns) {
+    if (!byTopic.has(p.topic)) {
+      order.push(p.topic);
+      byTopic.set(p.topic, []);
+    }
+    byTopic.get(p.topic)!.push(p);
+  }
+
+  return order.map((topic) => {
+    const group = byTopic.get(topic)!;
+    return {
+      topic,
+      observation: group.map((p) => p.observation).join(" "),
+      suggested_approach: group[0].suggested_approach,
+    };
+  });
 }
 
 Deno.serve(async (req: Request) => {
@@ -141,15 +182,27 @@ Deno.serve(async (req: Request) => {
     isSpecific: false,
   }));
 
-  // Guided-journal entries DO have a real signal: evaluate-parent-log-followup
-  // only stops the chain early (fewer than the 3-question hard cap) when it
-  // detected a cognitive mechanism, so an entry with < 3 answers is a good
-  // proxy for "spesifik" without needing another LLM call here.
+  // 2026-09-03: was `answers.length < 3` — a proxy for "the chain stopped
+  // early because evaluate-parent-log-followup detected a cognitive
+  // mechanism". That gate was removed 2026-09-01 (see
+  // followupStageInstruction's comment in prompts.ts) — the chain is now
+  // ALWAYS the full 3-question arc, so every real entry has exactly 3
+  // answers and the old proxy was permanently false. That silently forced
+  // specificRatio to 0 and data_confidence to "low" on every call
+  // regardless of how substantive the answers actually were, which made
+  // the prompt's own (correct) "low confidence -> keep patterns empty"
+  // rule fire every time — found live 2026-09-03 (patterns[] stayed empty
+  // against a real account with 13 detailed multi-topic entries this
+  // week). The forced 3-question depth is now guaranteed structurally, so
+  // treat length as a sanity floor instead: specific means the parent
+  // actually completed the full arc with non-trivial answers, not cut
+  // short (e.g. by the confirmation-alert bug that used to end a chain
+  // after 1-2 answers) or left blank.
   const journalEntriesForPrompt: ParentLogEntryForPrompt[] = (journalEntries ?? []).map((e) => {
     const answers = (e.parent_log_answers ?? []) as { field: LogContextField; question_text: string; answer_text: string; sequence: number }[];
     return {
       timestamp: e.timestamp,
-      isSpecific: answers.length < 3,
+      isSpecific: answers.length >= 3 && answers.every((a) => a.answer_text.trim().length >= 10),
       answers: answers
         .sort((a, b) => a.sequence - b.sequence)
         .map((a) => ({ field: a.field, questionText: a.question_text, answerText: a.answer_text })),
@@ -162,47 +215,132 @@ Deno.serve(async (req: Request) => {
     journalEntriesForPrompt.filter((e) => e.isSpecific).length,
   );
 
+  // No child profile in the family yet (solo mode, ARCHITECTURE.md §3b) —
+  // buildOverviewPrompt assumes there's real child-side data to weigh
+  // against the parent's, and only hedges via data_confidence; it was
+  // never designed to run on zero child data at all, and its
+  // relationship_signal/child_openness fields have no real basis to stand
+  // on in that case. buildParentOnlyOverviewPrompt (§6 of prompts.ts) was
+  // written for exactly this — parent's own guided-journal entries only,
+  // with an explicit rule to never assert the child's feelings as fact —
+  // but had no caller until now. Wired in live 2026-09-02.
+  const hasChild = childProfile != null;
+
   try {
-    const prompt = buildOverviewPrompt(
-      taggedLogs,
-      taggedInteractions,
-      taggedReflections,
-      journalEntriesForPrompt,
-      childProfile?.display_name ?? "anak",
-      childConfidenceTier,
-      parentConfidenceTier,
-    );
+    let overviewFields: {
+      headline: string;
+      summary: string;
+      patterns: unknown;
+      relationship_signal: unknown;
+      communication_style: unknown;
+      data_confidence: unknown;
+      key_insight: string;
+    };
+    let promptTokens: number;
+    let outputTokens: number;
 
-    const result = await callLlmWithFallback(prompt, {
-      model: Deno.env.get("OPENROUTER_MODEL_OVERVIEW") ?? DEFAULT_MODEL,
-      jsonSchema: OVERVIEW_JSON_SCHEMA,
-      // "/no_think" (llm.ts) — cut ~20s to ~7s in testing
-      // (PERFORMANCE_COMPARISON.md §8), quality looked comparable on the
-      // dummy dataset (still needs the real A/B harness work in ADR-0010's
-      // Action Items, this was a smoke test not a rigorous eval).
-      systemPrompt: "/no_think",
-      maxOutputTokens: 6000,
-    }, 20000); // more generous than followup-eval's 5s — this isn't a real-time UX path
-    const parsed = parseJsonResponse<OverviewResult>(result.text);
+    if (hasChild) {
+      const prompt = buildOverviewPrompt(
+        taggedLogs,
+        taggedInteractions,
+        taggedReflections,
+        journalEntriesForPrompt,
+        childProfile.display_name ?? "anak",
+        childConfidenceTier,
+        parentConfidenceTier,
+      );
 
-    const { data: inserted, error: insertError } = await supabase
-      .from("overviews")
-      .insert({
-        family_id: body.family_id,
+      const result = await callLlmWithFallback(prompt, {
+        model: Deno.env.get("OPENROUTER_MODEL_OVERVIEW") ?? DEFAULT_MODEL,
+        jsonSchema: OVERVIEW_JSON_SCHEMA,
+        // "/no_think" (llm.ts) — cut ~20s to ~7s in testing
+        // (PERFORMANCE_COMPARISON.md §8), quality looked comparable on the
+        // dummy dataset (still needs the real A/B harness work in ADR-0010's
+        // Action Items, this was a smoke test not a rigorous eval).
+        systemPrompt: "/no_think",
+        maxOutputTokens: 6000,
+      }, 20000); // more generous than followup-eval's 5s — this isn't a real-time UX path
+      const parsed = parseJsonResponse<OverviewResult>(result.text);
+
+      overviewFields = {
         headline: parsed.overview.headline,
         summary: parsed.overview.summary,
-        patterns: parsed.overview.patterns,
+        patterns: mergePatternsByTopic(parsed.overview.patterns),
         relationship_signal: parsed.overview.relationship_signal,
         communication_style: parsed.overview.communication_style,
         data_confidence: parsed.overview.data_confidence,
         key_insight: parsed.overview.key_insight,
-        raw_response: { promptTokens: result.promptTokens, outputTokens: result.outputTokens },
-      })
+      };
+      promptTokens = result.promptTokens;
+      outputTokens = result.outputTokens;
+    } else {
+      const prompt = buildParentOnlyOverviewPrompt(
+        journalEntriesForPrompt,
+        "anakmu",
+        parentConfidenceTier,
+      );
+
+      const result = await callLlmWithFallback(prompt, {
+        model: Deno.env.get("OPENROUTER_MODEL_OVERVIEW") ?? DEFAULT_MODEL,
+        jsonSchema: PARENT_ONLY_OVERVIEW_JSON_SCHEMA,
+        systemPrompt: "/no_think",
+        maxOutputTokens: 6000,
+      }, 20000);
+      const parsed = parseJsonResponse<ParentOnlyOverviewResult>(result.text);
+
+      // Map onto the same storage/client shape as the combined overview.
+      // parent_concern has a real basis (assessed from the parent's own
+      // reflection entries), so it carries over as-is. child_openness and
+      // possible_misalignment have NO basis at all without any child
+      // data — sending a fake "low"/false there reads to the parent as a
+      // confident (if reassuring) assessment the app never actually made.
+      // "tidak tersedia" is a deliberate sentinel: RelationshipSignal's
+      // childOpennessText/misalignmentText (Swift) recognize it and show
+      // an honest "not available" instead of a fabricated value.
+      overviewFields = {
+        headline: parsed.overview.headline,
+        summary: parsed.overview.summary,
+        patterns: mergePatternsByTopic(parsed.overview.patterns),
+        relationship_signal: {
+          parent_concern: parsed.overview.parent_signal.frustration_level,
+          child_openness: "tidak tersedia",
+          possible_misalignment: false,
+        },
+        communication_style: parsed.overview.communication_style,
+        data_confidence: { child: "low", parent: parsed.overview.data_confidence },
+        key_insight: parsed.overview.key_insight,
+      };
+      promptTokens = result.promptTokens;
+      outputTokens = result.outputTokens;
+    }
+
+    // upsert, not insert: `overviews_family_period_idx` (a unique index on
+    // family_id+period_start, added separately from this function) rejects
+    // a second row for the same family/week outright. The client's own
+    // fetchOverview-before-generate guard means this path is normally
+    // never hit for an existing period — but a race (e.g. a double-tapped
+    // refresh) or an exact-match miss would otherwise turn into a hard 500
+    // instead of just returning the row. onConflict overwrites with the
+    // freshly generated content rather than erroring.
+    const { data: inserted, error: insertError } = await supabase
+      .from("overviews")
+      .upsert({
+        family_id: body.family_id,
+        // Client's fetchOverview does an exact-match lookup on these two
+        // columns to avoid re-generating (a real LLM call, ~7-20s) on
+        // every Ringkasan open — this insert never set them, so that
+        // lookup always missed (NULL never equals a real date) and the
+        // slow path ran every single time. Root-caused live 2026-09-02.
+        period_start: body.period_start ?? null,
+        period_end: body.period_end ?? null,
+        ...overviewFields,
+        raw_response: { promptTokens, outputTokens },
+      }, { onConflict: "family_id,period_start" })
       .select()
       .single();
 
     if (insertError) {
-      console.error("generate-overview: insert failed", insertError);
+      console.error("generate-overview: upsert failed", insertError);
       return jsonResponse({ error: "insert_failed" }, 500);
     }
 

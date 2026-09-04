@@ -149,8 +149,18 @@ function joinNatural(items: string[]): string {
 // nonsensical for a personal-wellbeing pick like "Tidur Cukup" (flagged
 // live 2026-08-30: "Kamu bilang lagi ngerasa Senang dan Puas soal Tidur
 // Cukup... gimana sama Maya?" doesn't make sense). Only mention the child
-// when the picked topic actually looks relationship/family-shaped.
-const CHILD_RELATED_KEYWORDS = ["anak", "keluarga", "hubungan"];
+// when the picked topic actually looks anak-specific.
+//
+// 2026-09-03: narrowed from ["anak", "keluarga", "hubungan"] to just
+// "anak" — "keluarga"/"hubungan" matched far too broadly (e.g. "Dukungan
+// Keluarga", "Tekanan Keluarga" are about family support/pressure in
+// general, not necessarily the child), producing the same forced-feeling
+// non-sequitur this list was meant to prevent: a pick like "Gembira dan
+// Bahagia soal Keluarga dan Teman" got bolted onto "...bersikap atau
+// bereaksi gimana sama anakmu?" even though nothing in the pick was about
+// the child specifically (flagged live: "kesannya terlalu patah dan
+// maksa bahas anak").
+const CHILD_RELATED_KEYWORDS = ["anak"];
 
 function isChildRelated(associations: string[]): boolean {
   return associations.some((a) => {
@@ -172,24 +182,51 @@ const CHILD_REFERENCE = "anakmu";
 // (indonesianToEmotionLabel's translation, used only for buildAffirmation's
 // cluster matching). `associations` are already Indonesian display strings
 // from the picker, no translation needed.
+// When the picked topic is child-related, ask straight for the parent's
+// OWN concrete reaction/behavior toward the child — not a generic
+// "gimana perasaanmu" (too generic to be about the parent specifically)
+// and not a question that needs the child's own perspective to answer
+// ("anaknya ngerasa gimana?" jumps to the child before the parent). Per
+// product feedback (2026-09-03): "how do you behave, specifically toward
+// your child" is answerable purely from the parent's own words/actions,
+// without needing child data. When the topic ISN'T child-related (e.g. a
+// personal-wellbeing pick like "Tidur Cukup"), just ask what caused the
+// picked feeling — no child mention (see isChildRelated's own history
+// above for why forcing one onto a non-child topic doesn't make sense).
+//
+// 2026-09-03: was a two-sentence "Kamu bilang lagi ngerasa X soal Y.
+// Cerita dong, Z?" — restating the picker selection as its own sentence
+// before asking anything read as long-winded/indirect (flagged live:
+// "llm nya output question yang jelasin panjang lebar... kita bikin
+// lebih straight forward"). Collapsed into ONE direct WH-question that
+// folds the picked labels/topic straight into what's being asked,
+// instead of restating them first.
 function buildOpenEndedQuestion(displayLabels: string[], associations: string[]): string {
   const labelsText = joinNatural(displayLabels);
   const associationsText = joinNatural(associations);
-  const childClause = isChildRelated(associations) ? ` sama ${CHILD_REFERENCE}` : "";
+  const childRelated = isChildRelated(associations);
 
+  // Child-related: skip re-asking about the feeling (the picker already
+  // captured it) and go straight to the one thing that's actually new —
+  // the parent's own behavior/reaction — same single-focus reasoning as
+  // the LLM follow-up prompt's "one straightforward ask, not two bolted
+  // together" rule.
+  if (childRelated) {
+    return associationsText
+      ? `Kamu tadi bersikap atau bereaksi gimana sama ${CHILD_REFERENCE} soal ${associationsText}?`
+      : `Kamu tadi bersikap atau bereaksi gimana sama ${CHILD_REFERENCE} hari ini?`;
+  }
   if (labelsText && associationsText) {
-    return `Kamu bilang lagi ngerasa ${labelsText} soal ${associationsText}. Cerita dong, kejadiannya gimana${childClause}?`;
+    return `Apa yang bikin kamu ngerasa ${labelsText} soal ${associationsText}?`;
   }
   if (labelsText) {
-    return `Kamu bilang lagi ngerasa ${labelsText} hari ini. Cerita dong, kejadiannya gimana${childClause}?`;
+    return `Apa yang bikin kamu ngerasa ${labelsText} hari ini?`;
   }
   if (associationsText) {
-    return `Kamu bilang ada yang lagi kepikiran soal ${associationsText}. Cerita dong, kejadiannya gimana${childClause}?`;
+    return `Kejadian apa soal ${associationsText} yang lagi kepikiran?`;
   }
-  // No picker signal to anchor on at all (e.g. picker skipped) — the child
-  // mention stays here since there's no topic to judge relevance against,
-  // and this is otherwise the fully generic opener.
-  return `Gimana harimu bareng ${CHILD_REFERENCE} hari ini? Cerita aja apa yang lagi ada di pikiranmu.`;
+  // No picker signal to anchor on at all (e.g. picker skipped).
+  return `Gimana harimu hari ini? Cerita aja apa yang lagi ada di pikiranmu.`;
 }
 
 interface RequestBody {
