@@ -122,6 +122,37 @@ Jangan mendiagnosis. Jangan menyalahkan salah satu pihak (anak atau orang tua).`
 const MULTI_CHILD_WEAVE_RULE_ID =
   `Beberapa catatan di atas mungkin ditandai "[tentang <nama>]" kalau jelas soal anak tertentu (keluarga ini bisa punya lebih dari satu anak terdaftar). Kalau catatan-catatan itu MEMANG menunjukkan perbedaan nyata antar anak (misal satu anak lebih suka X, anak lain lebih suka Y) — boleh sebut nama mereka langsung di kalimatmu biar insight-nya konkret dan personal, BUKAN cuma "tiap anak beda-beda" yang generic. TETAP satu narasi gabungan — JANGAN dipisah jadi bagian/pattern terpisah per anak. Kalau catatannya cuma soal 1 anak, atau semuanya "[general]" tanpa nama, abaikan aturan ini dan tulis seperti biasa tanpa maksa nyebut nama.`;
 
+// Concrete good/bad contrast for key_insight — added 2026-09-07 after a
+// live case where the free-tier model produced a key_insight that just
+// reworded summary despite the abstract "don't restate" instruction
+// already sitting in that field's own description. Smaller models follow
+// a worked example far more reliably than an abstract rule; this
+// reinforces that instruction, it doesn't replace it.
+const KEY_INSIGHT_EXAMPLE_RULE_ID =
+  `Contoh biar jelas bedanya "restate" vs "sudut baru": kalau summary udah bilang "Kamu capek kerja dan itu bikin nada bicaramu ke anak jadi ketus" — key_insight SALAH (cuma versi lain dari kalimat yang sama, DILARANG): "Kamu keliatan lelah kerja dan itu memengaruhi caramu ngomong ke anak." key_insight BENAR (sudut baru, sebuah kemungkinan yang belum kesebut di summary): "Mungkin anak udah mulai asosiasikan 'kamu capek' sama 'siap-siap kena omel', bukan cuma ngeliat harimu berat." Tes cepat sebelum nulis: kalau key_insight-mu bisa ditukar posisi sama summary tanpa kehilangan makna, berarti itu masih restate — tulis ulang sampai isinya beda.`;
+
+// Formats the family's onboarded children — including friction_areas/
+// communication_style from onboarding, not just nicknames — into a
+// roster block for the overview/reflection prompts (2026-09-07). Without
+// this, a "[tentang jkw]" tag only tells the model a name; this gives it
+// the actual context that onboarding collected, so a comment about a
+// tagged entry can draw on the profile ("ini memang salah satu gesekan
+// yang biasa muncul sama jkw"), not just re-describe the entry's own
+// text. Returns "" when the family has no child_profiles yet — callers
+// should skip this section entirely in that case, same "no-op when
+// there's nothing to weave" posture as MULTI_CHILD_WEAVE_RULE_ID.
+function formatChildRosterForPrompt(children: ChildProfileForPrompt[]): string {
+  if (children.length === 0) return "";
+  const lines = children.map((c) => {
+    const traits = [
+      c.frictionAreas.length ? `gesekan yang biasa muncul: ${c.frictionAreas.join(", ")}` : null,
+      c.communicationStyle.length ? `gaya komunikasi: ${c.communicationStyle.join(", ")}` : null,
+    ].filter(Boolean).join("; ");
+    return `- ${c.nickname}${traits ? ` (${traits})` : ""}`;
+  }).join("\n");
+  return `\nProfil anak yang sudah didaftarkan orang tua ini (dari onboarding, BUKAN dari catatan minggu ini):\n${lines}\nKalau catatan di atas ditandai "[tentang <nama>]" dan match salah satu nama di profil ini, boleh manfaatkan info gesekan/gaya komunikasinya KALAU relevan sama observasi minggu ini — tapi JANGAN asumsikan gesekan itu terjadi minggu ini kalau catatannya sendiri gak nunjukkin itu; profil ini konteks latar belakang, bukan bukti kejadian minggu ini.\n`;
+}
+
 // First name only — reads personal ("Maya"), not formal/clinical ("Maya
 // Anderson"), in a warm-address sentence. Kept in sync with
 // PromptBuilder.swift's firstName().
@@ -374,6 +405,7 @@ export function buildOverviewPrompt(
   childName: string,
   childConfidenceTier: ConfidenceTier,
   parentConfidenceTier: ConfidenceTier,
+  childProfiles: ChildProfileForPrompt[] = [],
 ): string {
   const name = firstName(childName);
   const childSpecificCount = logs.filter((l) => l.isSpecific).length;
@@ -400,7 +432,7 @@ Konteks dari orang tua (interaksi terakhir dan refleksi, ditandai [spesifik] ata
 ${compactParentContextTagged(interactions, reflections)}
 Jurnal terpandu orang tua (guided journal minggu ini, ditandai [spesifik] atau [general] per catatan — ini biasanya sumber paling kaya karena orang tua diajak cerita lebih dalam soal satu momen):
 ${compactParentLogEntries(guidedJournalEntries)}
-
+${formatChildRosterForPrompt(childProfiles)}
 Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
 
 {
@@ -445,6 +477,7 @@ Aturan:
 - ${DATA_NOT_JUDGMENT_RULE_ID}
 - ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
 - ${MULTI_CHILD_WEAVE_RULE_ID}
+- ${KEY_INSIGHT_EXAMPLE_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
 - ${QUOTE_RULE_ID}
 - Pertimbangkan perspektif anak maupun orang tua.
@@ -540,6 +573,7 @@ export function buildReflectionPrompt(
   interactions: ParentInteractionForPrompt[],
   reflections: ParentReflectionForPrompt[],
   childName: string,
+  childProfiles: ChildProfileForPrompt[] = [],
 ): string {
   const name = firstName(childName);
   return `Kamu adalah asisten keluarga yang empatik. Berdasarkan seluruh riwayat catatan emosi anak dan konteks orang tua, berikan rekomendasi refleksi untuk membantu orang tua terhubung lebih baik dengan anaknya.
@@ -549,7 +583,7 @@ ${compactLogs(logs)}
 
 Konteks dari orang tua:
 ${compactParentContext(interactions, reflections)}
-
+${formatChildRosterForPrompt(childProfiles)}
 Buat 2-3 rekomendasi refleksi singkat sebagai JSON saja, persis bentuk ini:
 
 {
@@ -616,6 +650,7 @@ export interface ParentOnlyReflectionResult {
 export function buildParentOnlyReflectionPrompt(
   entries: ParentLogEntryForPrompt[],
   confidenceTier: ConfidenceTier,
+  childProfiles: ChildProfileForPrompt[] = [],
 ): string {
   const specificCount = entries.filter((e) => e.isSpecific).length;
   return `Kamu adalah pelatih pribadi yang empatik untuk orang tua. Berdasarkan seluruh riwayat catatan refleksi orang tua sendiri (belum ada data dari anak sama sekali), berikan rekomendasi refleksi untuk membantu orang tua membangun kosakata emosi dan pola komunikasi yang lebih autonomy-supportive SEBELUM mempraktikkannya ke anak.
@@ -624,7 +659,7 @@ Data: ${entries.length} catatan orang tua, ${specificCount} di antaranya spesifi
 
 Seluruh riwayat catatan orang tua (ditandai [spesifik] atau [general] per catatan):
 ${compactParentLogEntries(entries)}
-
+${formatChildRosterForPrompt(childProfiles)}
 Buat 2-3 rekomendasi refleksi singkat sebagai JSON saja, persis bentuk ini:
 
 {
@@ -1018,6 +1053,7 @@ export function buildParentOnlyOverviewPrompt(
   entries: ParentLogEntryForPrompt[],
   childName: string,
   confidenceTier: ConfidenceTier,
+  childProfiles: ChildProfileForPrompt[] = [],
 ): string {
   const name = firstName(childName);
   const specificCount = entries.filter((e) => e.isSpecific).length;
@@ -1033,7 +1069,7 @@ Data minggu ini: ${entries.length} catatan orang tua, ${specificCount} di antara
 
 Catatan refleksi orang tua (minggu ini, ditandai [spesifik] atau [general] per catatan):
 ${compactParentLogEntries(entries)}
-
+${formatChildRosterForPrompt(childProfiles)}
 Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
 {
   "overview": {
@@ -1073,6 +1109,7 @@ Aturan:
 - ${DATA_NOT_JUDGMENT_RULE_ID}
 - ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
 - ${MULTI_CHILD_WEAVE_RULE_ID}
+- ${KEY_INSIGHT_EXAMPLE_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
 - ${QUOTE_RULE_ID}
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;

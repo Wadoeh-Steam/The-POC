@@ -8,6 +8,7 @@ import { callLlmWithFallback, parseJsonResponse } from "../_shared/llm.ts";
 import {
   buildParentOnlyReflectionPrompt,
   buildReflectionPrompt,
+  type ChildProfileForPrompt,
   deriveConfidenceTier,
   type EmotionLogForPrompt,
   type LogContextField,
@@ -107,16 +108,25 @@ Deno.serve(async (req: Request) => {
       .eq("family_id", body.family_id)
       .eq("role", "child")
       .single(),
-    // Same standalone multi-child roster as generate-overview — labels
-    // entries in the prompt only, unrelated to the profiles.role='child'
-    // lookup above. See MULTI_CHILD_WEAVE_RULE_ID (_shared/prompts.ts).
+    // Same standalone multi-child roster as generate-overview — full
+    // profile (2026-09-07), not just nickname, so formatChildRosterForPrompt
+    // can give the model the actual onboarding context (friction_areas/
+    // communication_style), not just a name label. Unrelated to the
+    // profiles.role='child' lookup above. See MULTI_CHILD_WEAVE_RULE_ID
+    // (_shared/prompts.ts).
     supabase
       .from("child_profiles")
-      .select("id, nickname")
+      .select("id, nickname, friction_areas, communication_style")
       .eq("family_id", body.family_id),
   ]);
 
   const childNicknameById = new Map((childProfiles ?? []).map((c) => [c.id, c.nickname]));
+  const childProfilesForPrompt: ChildProfileForPrompt[] = (childProfiles ?? []).map((c) => ({
+    id: c.id,
+    nickname: c.nickname,
+    frictionAreas: c.friction_areas ?? [],
+    communicationStyle: c.communication_style ?? [],
+  }));
 
   const logsForPrompt: EmotionLogForPrompt[] = (logs ?? []).map((l) => ({
     timestamp: l.timestamp,
@@ -174,6 +184,7 @@ Deno.serve(async (req: Request) => {
         interactionsForPrompt,
         [],
         childProfile.display_name ?? "anak",
+        childProfilesForPrompt,
       );
 
       const result = await callLlmWithFallback(prompt, {
@@ -193,7 +204,7 @@ Deno.serve(async (req: Request) => {
       promptTokens = result.promptTokens;
       outputTokens = result.outputTokens;
     } else {
-      const prompt = buildParentOnlyReflectionPrompt(journalEntriesForPrompt, parentConfidenceTier);
+      const prompt = buildParentOnlyReflectionPrompt(journalEntriesForPrompt, parentConfidenceTier, childProfilesForPrompt);
 
       const result = await callLlmWithFallback(prompt, {
         model: Deno.env.get("OPENROUTER_MODEL_REFLECTION") ?? DEFAULT_MODEL,
