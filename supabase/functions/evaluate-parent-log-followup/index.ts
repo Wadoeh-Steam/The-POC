@@ -37,6 +37,11 @@ interface RequestBody {
   question_text: string;
   answer_text: string;
   followup_number: 1 | 2;
+  // Best-effort, client-detected child name from an earlier answer in this
+  // same entry (see buildFollowupEvaluationPrompt's doc comment) — a
+  // phrasing hint only, optional, never validated against child_profiles
+  // here.
+  known_child_name?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -62,7 +67,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const prompt = buildFollowupEvaluationPrompt(body.question_text, body.answer_text, body.followup_number);
+    const prompt = buildFollowupEvaluationPrompt(
+      body.question_text,
+      body.answer_text,
+      body.followup_number,
+      body.known_child_name,
+    );
     const result = await callLlmWithFallback(prompt, {
       model: Deno.env.get("OPENROUTER_MODEL_FOLLOWUP_EVAL") ?? DEFAULT_MODEL,
       jsonSchema: FOLLOWUP_EVALUATION_JSON_SCHEMA,

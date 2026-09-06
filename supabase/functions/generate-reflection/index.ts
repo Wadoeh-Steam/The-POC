@@ -83,7 +83,7 @@ Deno.serve(async (req: Request) => {
   // `parent_log_entries` + `parent_log_answers`. `emotion_logs` (the
   // child's own mood check-ins) stays as-is — a live table, just empty in
   // families with no child profile yet.
-  const [{ data: logs }, { data: entries }, { data: childProfile }] = await Promise.all([
+  const [{ data: logs }, { data: entries }, { data: childProfile }, { data: childProfiles }] = await Promise.all([
     supabase
       .from("emotion_logs")
       .select("id, timestamp, valence, valence_classification, labels, associations, journal, log_context_answers(field, answer)")
@@ -95,7 +95,7 @@ Deno.serve(async (req: Request) => {
       .limit(200),
     supabase
       .from("parent_log_entries")
-      .select("id, timestamp, valence, labels, associations, insight_text, parent_log_answers(field, question_text, answer_text, sequence)")
+      .select("id, timestamp, valence, labels, associations, insight_text, child_profile_id, parent_log_answers(field, question_text, answer_text, sequence)")
       .eq("family_id", body.family_id)
       .gte("timestamp", body.period_start)
       .lt("timestamp", body.period_end)
@@ -107,7 +107,16 @@ Deno.serve(async (req: Request) => {
       .eq("family_id", body.family_id)
       .eq("role", "child")
       .single(),
+    // Same standalone multi-child roster as generate-overview — labels
+    // entries in the prompt only, unrelated to the profiles.role='child'
+    // lookup above. See MULTI_CHILD_WEAVE_RULE_ID (_shared/prompts.ts).
+    supabase
+      .from("child_profiles")
+      .select("id, nickname")
+      .eq("family_id", body.family_id),
   ]);
+
+  const childNicknameById = new Map((childProfiles ?? []).map((c) => [c.id, c.nickname]));
 
   const logsForPrompt: EmotionLogForPrompt[] = (logs ?? []).map((l) => ({
     timestamp: l.timestamp,
@@ -129,6 +138,7 @@ Deno.serve(async (req: Request) => {
       answers: answers
         .sort((a, b) => a.sequence - b.sequence)
         .map((a) => ({ field: a.field, questionText: a.question_text, answerText: a.answer_text })),
+      childNickname: e.child_profile_id ? childNicknameById.get(e.child_profile_id) ?? null : null,
     };
   });
 
@@ -143,6 +153,7 @@ Deno.serve(async (req: Request) => {
       topic: (e.associations ?? [])[0] ?? "Umum",
       interaction: answers.length ? answers.map((a) => a.answer_text).join(" ") : (e.insight_text ?? "(tidak ada catatan tambahan)"),
       parent_emotion: (e.labels ?? [])[0] ?? null,
+      childNickname: e.child_profile_id ? childNicknameById.get(e.child_profile_id) ?? null : null,
     };
   });
 

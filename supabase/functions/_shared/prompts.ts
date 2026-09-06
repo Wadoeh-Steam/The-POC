@@ -29,6 +29,13 @@ export interface ParentInteractionForPrompt {
   topic: string;
   interaction: string;
   parent_emotion: string | null;
+  // Which onboarded child (child_profiles.nickname) this entry was matched
+  // to by generate-journal-insight, or null/undefined for general/
+  // unmatched entries. Purely a label for the weekly overview/reflection
+  // prompt to weave into ONE combined narrative when it helps (2026-09-07
+  // product decision: never split into separate per-child overviews) —
+  // see compactParentContext's use of it below.
+  childNickname?: string | null;
 }
 
 export interface ParentReflectionForPrompt {
@@ -79,8 +86,9 @@ function compactParentContext(
 ): string {
   const lines: string[] = [];
   for (const i of interactions) {
+    const childLabel = i.childNickname ? ` [tentang ${i.childNickname}]` : "";
     lines.push(
-      `- ${i.timestamp.slice(0, 10)} [${i.topic}] "${i.interaction}"` +
+      `- ${i.timestamp.slice(0, 10)}${childLabel} [${i.topic}] "${i.interaction}"` +
         (i.parent_emotion ? ` (perasaan orang tua: ${i.parent_emotion})` : ""),
     );
   }
@@ -99,6 +107,20 @@ function compactParentContext(
 const CAUTIOUS_LANGUAGE_RULE_ID = `Gunakan bahasa hati-hati saja: "mungkin", "tampaknya", "kemungkinan polanya adalah", "bisa jadi menunjukkan". \
 Jangan pernah gunakan: "mengalami gangguan", "depresi", "ini membuktikan bahwa". \
 Jangan mendiagnosis. Jangan menyalahkan salah satu pihak (anak atau orang tua).`;
+
+// Multi-child support (child_profiling brief, 2026-09-07): some catatan
+// below may be tagged "[tentang <nama>]" when generate-journal-insight
+// confidently matched that entry to one onboarded child. Product decision:
+// the overview/reflection stays ONE combined narrative regardless of how
+// many children are onboarded — never split into per-child sections/cards
+// — but when the tagged data actually shows a real difference between
+// children, naming them directly makes the insight concrete instead of
+// vague ("setiap anak beda-beda"). This rule only has anything to act on
+// when 2+ distinct names actually appear in the tags below; with 0-1
+// children, or all-general entries, it's a no-op and the prompt reads
+// exactly as it did before this existed.
+const MULTI_CHILD_WEAVE_RULE_ID =
+  `Beberapa catatan di atas mungkin ditandai "[tentang <nama>]" kalau jelas soal anak tertentu (keluarga ini bisa punya lebih dari satu anak terdaftar). Kalau catatan-catatan itu MEMANG menunjukkan perbedaan nyata antar anak (misal satu anak lebih suka X, anak lain lebih suka Y) — boleh sebut nama mereka langsung di kalimatmu biar insight-nya konkret dan personal, BUKAN cuma "tiap anak beda-beda" yang generic. TETAP satu narasi gabungan — JANGAN dipisah jadi bagian/pattern terpisah per anak. Kalau catatannya cuma soal 1 anak, atau semuanya "[general]" tanpa nama, abaikan aturan ini dan tulis seperti biasa tanpa maksa nyebut nama.`;
 
 // First name only — reads personal ("Maya"), not formal/clinical ("Maya
 // Anderson"), in a warm-address sentence. Kept in sync with
@@ -422,6 +444,7 @@ Aturan:
 - ${AUTONOMY_SUPPORTIVE_RULE_ID}
 - ${DATA_NOT_JUDGMENT_RULE_ID}
 - ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
+- ${MULTI_CHILD_WEAVE_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
 - ${QUOTE_RULE_ID}
 - Pertimbangkan perspektif anak maupun orang tua.
@@ -545,6 +568,7 @@ Aturan:
 - Dasarkan pada pola berulang, bukan kejadian tunggal.
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
 - ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
+- ${MULTI_CHILD_WEAVE_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk description)
 - ${QUOTE_RULE_ID} (berlaku untuk "starter" kalau diisi)
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
@@ -621,6 +645,7 @@ Aturan:
 - Kalau confidence "low", jangan klaim pola kuat — cukup 1-2 rekomendasi ringan berdasarkan apa yang ada.
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
 - ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
+- ${MULTI_CHILD_WEAVE_RULE_ID}
 - ${QUOTE_RULE_ID} (berlaku untuk "starter" kalau diisi)
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
 }
@@ -700,6 +725,20 @@ export function buildFollowupEvaluationPrompt(
   questionText: string,
   answerText: string,
   followupNumber: 1 | 2,
+  // This call only ever sees ONE Q&A pair — it has no memory of earlier
+  // questions in the same entry. So if the parent named their kid in an
+  // EARLIER answer (e.g. "Eca" in the anchor question) and this answer
+  // just says "dia"/"anakku" without repeating the name, this call alone
+  // can't know who that refers to. The client does a cheap, best-effort
+  // local match (family's onboarded nicknames against answers-so-far) and
+  // passes whatever it already found here — this is only ever a phrasing
+  // hint for a disposable follow-up QUESTION, never the source of truth
+  // for the entry's actual child_profile_id attribution (that's decided
+  // once, carefully, by generate-journal-insight over the FULL entry text
+  // — see its doc comment). A wrong hint here just costs an
+  // awkward-sounding question, not bad data, so a cheap heuristic is fine
+  // here in a way it deliberately isn't for the real attribution.
+  knownChildName?: string,
 ): string {
   const affirmationInstruction = followupNumber === 1
     ? `Tulis SATU kalimat pendek yang mengakui perasaan orang tua dari jawabannya — bukan menilai. Ini reaksi PERTAMA di obrolan ini, boleh pakai nada hangat/seruan kayak "Wah..."/"Aduh..." kalau emang pas.`
@@ -724,6 +763,11 @@ Pertanyaan HARUS straightforward, spesifik, satu kalimat pendek — jangan berte
 - ❌ Jangan nanya perasaan/pikiran anak langsung ("anaknya ngerasa gimana?") — butuh data anak yang orang tua gak bisa jawab akurat, dan lompat ke anak duluan instead of orang tuanya.
 - ✅ Nanya "kamu bersikap/bereaksi gimana ke [siapapun/apapun yang RELEVAN di cerita]?" — bisa dijawab murni dari sisi orang tua (dia yang describe kata-kata, reaksi, emosi dia sendiri).
 - ❌ JANGAN karang-karang ada "dia"/"anaknya" kalau jawaban orang tua di atas SAMA SEKALI gak nyebut/nyinggung anak — misal cerita soal pencapaian pribadi (lari 10k, kerjaan, kesehatan) yang murni tentang orang tua sendiri. Maksa nyelipin "ke dia" di situ bikin pertanyaan kerasa aneh/nyasar, karena "dia" yang dimaksud gak pernah ada di ceritanya. Cek dulu: kalau anak beneran ada di jawaban orang tua, boleh sebut anak; kalau enggak, tetap gali AKSI/REAKSI orang tua tapi TANPA nyebut anak sama sekali.
+${
+    knownChildName
+      ? `- Orang tua ini sebelumnya udah nyebut nama "${knownChildName}" di jawaban lain di obrolan yang sama. Kalau jawaban di atas nyinggung anak (langsung atau lewat "dia"/"anaknya"), boleh pakai nama "${knownChildName}" di pertanyaanmu biar kerasa lebih personal daripada "dia" terus-terusan — tapi TETAP ikuti aturan di atas: kalau jawaban di atas SAMA SEKALI gak nyinggung anak, jangan dipaksain nyebut "${knownChildName}" sama sekali.`
+      : ""
+  }
 
 Tugas 3 — Sinyal krisis:
 Tandai true HANYA jika jawaban menunjukkan indikasi serius menyakiti diri sendiri, keinginan bunuh diri, atau bahaya langsung terhadap keselamatan. Jangan tandai true untuk emosi negatif biasa (capek, sedih, stres).
@@ -768,27 +812,77 @@ export const FOLLOWUP_EVALUATION_JSON_SCHEMA = {
 // parent before they review and send, per the flow diagram's "LLM process
 // insight of overall answers" -> "Display Journal Insight" step.
 
+// A family's child_profiles row (ARCHITECTURE.md — standalone, parent-
+// authored, NOT tied to a real child account/profiles row). Passed in as
+// the full family roster so the model can do its own name-matching
+// against the entry text — see buildJournalInsightPrompt's matching
+// section below.
+export interface ChildProfileForPrompt {
+  id: string;
+  nickname: string;
+  frictionAreas: string[];
+  communicationStyle: string[];
+}
+
 export interface JournalInsightResult {
   kesimpulan: string;
   validasi_emosi: string;
+  // Which child_profiles row (by id) this entry is confidently about, or
+  // null when no name was clearly mentioned/referenced, the topic isn't
+  // about a child at all, or there are 2+ candidates and it's genuinely
+  // ambiguous. Never a best-effort guess — see the matching rules below;
+  // product decision (2026-09-07): wrong silent attribution is worse than
+  // no attribution, and the parent can correct it after the fact via the
+  // journal-preview chip rather than the model forcing a pick here.
+  child_profile_id: string | null;
 }
 
 export function buildJournalInsightPrompt(
   qaPairs: { question: string; answer: string }[],
-  childName: string,
+  childProfiles: ChildProfileForPrompt[],
 ): string {
-  // "anakmu" ("your child") when no real name is known yet — e.g. solo
-  // mode, no child paired (ARCHITECTURE.md §3b). Same generic reference
-  // select-parent-log-questions' CHILD_REFERENCE uses for its opener, and
-  // for the same reason: composes into personalityRuleId's instructions
-  // ("Sebut anakmu di tengah kalimat...") without needing a real name.
-  const name = firstName(childName.trim() || "anakmu");
   // Full words, not "T:"/"J:" (Tanya/Jawab) — single-letter speaker labels
   // read to the free-tier model as two people's initials, and it echoed
   // them into the summary as characters in the story ("T merasa bangga
   // karena berhasil membantu J...") instead of understanding them as a
   // question/answer transcript convention. Root-caused live 2026-09-01.
   const transcript = qaPairs.map((qa) => `Pertanyaan: ${qa.question}\nJawaban: ${qa.answer}`).join("\n\n");
+
+  // 2026-09-07: this used to take a single already-known childName (a real
+  // connected child account's display name, or "anakmu" if none) — the
+  // caller decided who "the child" was before this prompt was ever built.
+  // Multi-child support (child_profiles, standalone per-child records)
+  // flips that: with 2+ onboarded children there's no single childName to
+  // hand in, and forcing the CALLER to guess which one defeats the whole
+  // point ("LLM yang narik dari isi cerita, bukan dari UI selector" — brief
+  // 2026-09-07). So the full roster goes into the prompt and the model
+  // does its own matching, in the SAME call that generates the insight —
+  // no separate detection call, no added latency/cost.
+  const childListText = childProfiles.length > 0
+    ? childProfiles.map((c) => {
+      const traits = [
+        c.frictionAreas.length ? `gesekan yang sering: ${c.frictionAreas.join(", ")}` : null,
+        c.communicationStyle.length ? `gaya komunikasi: ${c.communicationStyle.join(", ")}` : null,
+      ].filter(Boolean).join("; ");
+      return `- id="${c.id}", nama="${c.nickname}"${traits ? ` (${traits})` : ""}`;
+    }).join("\n")
+    : null;
+
+  // Deliberately conservative — matching on friction_areas/communication_
+  // style similarity ALONE (no name/reference actually said) is exactly
+  // the "confidently wrong" trap this was designed to avoid: two kids can
+  // easily share a friction area, and a silent wrong attribution poisons
+  // future weekly-overview aggregation worse than no attribution at all
+  // (product decision 2026-09-07, Q3/Q7 of the design discussion).
+  const matchingSection = childListText
+    ? `Orang tua ini sudah mendaftarkan anak-anak berikut:
+${childListText}
+
+Kalau jawaban di atas JELAS menyebut salah satu nama itu, atau merujuk balik ke nama yang sudah disebut di jawaban lain dalam percakapan yang sama (misal "dia"/"anakku" setelah nama disebut di jawaban sebelumnya) — pakai nama itu di kesimpulan/validasi_emosi (di TENGAH kalimat, JANGAN sebagai sapaan pembuka), dan manfaatkan info gesekan/gaya komunikasi anak itu KALAU relevan sama cerita orang tua. Isi "child_profile_id" dengan id anak itu (persis seperti tertulis di atas).
+
+Kalau TIDAK ada nama yang disebut/dirujuk jelas, atau ceritanya bukan soal anak sama sekali, atau ada 2+ anak terdaftar tapi ngga jelas yang mana yang dimaksud — JANGAN NEBAK. Pakai "anakmu" secara generik kalau perlu nyebut anak sama sekali, dan isi "child_profile_id" dengan null. JANGAN PERNAH pilih anak cuma berdasarkan kemiripan gesekan/gaya komunikasi tanpa nama/rujukan eksplisit yang disebut di jawaban.`
+    : `Orang tua ini belum mendaftarkan profil anak manapun. Kalau perlu nyebut anak sama sekali, pakai "anakmu" secara generik. Isi "child_profile_id" dengan null.`;
+
   // Root-caused live 2026-09-01 alongside the T:/J: bug — two more failure
   // modes on the free-tier model, both from the same underlying gap (the
   // prompt never said WHO the subject of the story is): (1) it invented a
@@ -808,17 +902,20 @@ Berikut percakapannya:
 
 ${transcript}
 
+${matchingSection}
+
 Buat ringkasan singkat sebagai JSON saja, persis bentuk ini:
 {
   "kesimpulan": "<MAKSIMAL 2 kalimat, hati-hati, merangkum apa yang beneran diceritakan orang tua — sebut dia "kamu", bukan orang ketiga>",
-  "validasi_emosi": "<MAKSIMAL 2 kalimat yang mengakui perasaan orang tua, merujuk ke detail KONKRET dari jawabannya di atas — bukan generalisasi umum kayak "wajar kalau orang ngerasa gitu">"
+  "validasi_emosi": "<MAKSIMAL 2 kalimat yang mengakui perasaan orang tua, merujuk ke detail KONKRET dari jawabannya di atas — bukan generalisasi umum kayak "wajar kalau orang ngerasa gitu">",
+  "child_profile_id": "<id anak yang match dari daftar di atas, atau null kalau tidak ada/tidak yakin>"
 }
 
 Aturan:
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
-- ${personalityRuleId(name)}
+- Kamu pendamping keluarga bijaksana usia 50-an — tegas dan percaya diri, bukan ragu-ragu atau klinis. Validasi juga perasaan orang tua. Kalau nyebut anak, sebut namanya (nama yang match, atau "anakmu" kalau generik) di TENGAH kalimat, JANGAN sebagai sapaan pembuka.
 - JANGAN mengarang atau menganggap kata/frasa apapun dari jawaban di atas sebagai nama orang lain (termasuk inisial atau kata biasa yang kebetulan ditulis huruf besar) — orang yang cerita di sini cuma satu: "kamu" (orang tua).
-- Sebut ${name} HANYA kalau jawaban orang tua di atas emang nyeritain soal ${name} atau interaksi sama ${name}. Kalau topiknya soal hal lain (pekerjaan, tidur, kondisi diri sendiri, teman, dll), jangan dipaksain nyebut ${name} sama sekali.
+- Sebut anak HANYA kalau jawaban orang tua di atas emang nyeritain soal anak itu atau interaksi sama anak itu. Kalau topiknya soal hal lain (pekerjaan, tidur, kondisi diri sendiri, teman, dll), jangan dipaksain nyebut anak sama sekali.
 - MAKSIMAL 2 kalimat per field, TIDAK BOLEH lebih. Jangan mengulang ide yang sama pakai kata berbeda — satu insight yang padat, bukan beberapa variasi kalimat yang bilang hal serupa.
 - Jangan menyimpulkan lebih dari yang benar-benar tersirat dari jawaban di atas.
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
@@ -831,8 +928,9 @@ export const JOURNAL_INSIGHT_JSON_SCHEMA = {
     properties: {
       kesimpulan: { type: "string" },
       validasi_emosi: { type: "string" },
+      child_profile_id: { type: ["string", "null"] },
     },
-    required: ["kesimpulan", "validasi_emosi"],
+    required: ["kesimpulan", "validasi_emosi", "child_profile_id"],
     additionalProperties: false,
   },
 };
@@ -864,6 +962,9 @@ export interface ParentLogEntryForPrompt {
   timestamp: string;
   isSpecific: boolean;
   answers: { field: LogContextField; questionText: string; answerText: string }[];
+  // Same childNickname labeling as ParentInteractionForPrompt above — which
+  // onboarded child (if any) this entry was matched to.
+  childNickname?: string | null;
 }
 
 export type ConfidenceTier = "low" | "building" | "high";
@@ -904,10 +1005,11 @@ function compactParentLogEntries(entries: ParentLogEntryForPrompt[]): string {
   return entries
     .map((e) => {
       const tag = e.isSpecific ? "[spesifik]" : "[general]";
+      const childLabel = e.childNickname ? ` [tentang ${e.childNickname}]` : "";
       const qa = e.answers
         .map((a) => `${FIELD_LABEL_ID[a.field]}: "${a.questionText}" -> "${a.answerText}"`)
         .join(" | ");
-      return `- ${e.timestamp.slice(0, 10)} ${tag} ${qa}`;
+      return `- ${e.timestamp.slice(0, 10)} ${tag}${childLabel} ${qa}`;
     })
     .join("\n");
 }
@@ -970,6 +1072,7 @@ Aturan:
 - ${AUTONOMY_SUPPORTIVE_RULE_ID}
 - ${DATA_NOT_JUDGMENT_RULE_ID}
 - ${PROTECT_CHILD_FROM_SPILLOVER_RULE_ID}
+- ${MULTI_CHILD_WEAVE_RULE_ID}
 - ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
 - ${QUOTE_RULE_ID}
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;

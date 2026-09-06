@@ -120,7 +120,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "caller_is_on_device_mode" }, 400);
   }
 
-  const [{ data: logs }, { data: interactions }, { data: reflections }, { data: journalEntries }, { data: childProfile }] =
+  const [{ data: logs }, { data: interactions }, { data: reflections }, { data: journalEntries }, { data: childProfile }, { data: childProfiles }] =
     await Promise.all([
       supabase
         .from("emotion_logs")
@@ -143,7 +143,7 @@ Deno.serve(async (req: Request) => {
         .limit(20),
       supabase
         .from("parent_log_entries")
-        .select("timestamp, parent_log_answers(field, question_text, answer_text, sequence)")
+        .select("timestamp, child_profile_id, parent_log_answers(field, question_text, answer_text, sequence)")
         .eq("family_id", body.family_id)
         .eq("context_complete", true)
         .order("timestamp", { ascending: true })
@@ -154,7 +154,19 @@ Deno.serve(async (req: Request) => {
         .eq("family_id", body.family_id)
         .eq("role", "child")
         .single(),
+      // Standalone, parent-authored child records (multi-child support,
+      // 2026-09-07) — unrelated to the profiles.role='child' lookup above,
+      // which is about a real connected child account. Just id+nickname
+      // here: only used to label journal entries in the prompt (see
+      // MULTI_CHILD_WEAVE_RULE_ID, _shared/prompts.ts), not for detection
+      // (that already happened, once, in generate-journal-insight).
+      supabase
+        .from("child_profiles")
+        .select("id, nickname")
+        .eq("family_id", body.family_id),
     ]);
+
+  const childNicknameById = new Map((childProfiles ?? []).map((c) => [c.id, c.nickname]));
 
   const logsForPrompt: EmotionLogForPrompt[] = (logs ?? []).map((l) => ({
     timestamp: l.timestamp,
@@ -206,6 +218,7 @@ Deno.serve(async (req: Request) => {
       answers: answers
         .sort((a, b) => a.sequence - b.sequence)
         .map((a) => ({ field: a.field, questionText: a.question_text, answerText: a.answer_text })),
+      childNickname: e.child_profile_id ? childNicknameById.get(e.child_profile_id) ?? null : null,
     };
   });
 
