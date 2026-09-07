@@ -334,6 +334,17 @@ export async function callLlmWithFallback(
 
   let lastError: unknown = new Error("no provider configured");
 
+  // How many configured providers are left to try, including this one —
+  // divides the remaining budget between them so a single slow/hung
+  // provider can't eat the WHOLE shared budget and starve the rest of
+  // their fair chance (found 2026-09-07: a live, working free model that's
+  // merely slow — not down — timed out right at the full budget, leaving
+  // zero time for the reliable fallback that would otherwise have
+  // succeeded in ~1s). The last attempt (gemini, below) gets whatever's
+  // left undivided, since nothing follows it.
+  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+  let remainingProviders = openAICompatibleProviders.filter((c) => c.apiKey).length + (geminiKey ? 1 : 0);
+
   for (const config of openAICompatibleProviders) {
     if (!config.apiKey) {
       lastError = new Error(`${config.name}: no API key configured`);
@@ -343,8 +354,10 @@ export async function callLlmWithFallback(
     if (remaining <= 0) {
       throw new Error(`LLM fallback chain exceeded budget before trying ${config.name} (last error: ${lastError})`);
     }
+    const attemptBudget = Math.max(1000, Math.floor(remaining / remainingProviders));
+    remainingProviders--;
     try {
-      const result = await withTimeout(callOpenAICompatible(prompt, opts, config), remaining);
+      const result = await withTimeout(callOpenAICompatible(prompt, opts, config), attemptBudget);
       return { ...result, provider: config.name };
     } catch (e) {
       lastError = e;
@@ -352,7 +365,6 @@ export async function callLlmWithFallback(
     }
   }
 
-  const geminiKey = Deno.env.get("GEMINI_API_KEY");
   const remaining = deadline - Date.now();
   if (geminiKey && remaining > 0) {
     const geminiConfig: ProviderConfig = {

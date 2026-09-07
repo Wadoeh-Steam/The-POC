@@ -12,7 +12,7 @@ import {
   CHILD_ENTRY_PARAPHRASE_JSON_SCHEMA,
 } from "../_shared/prompts.ts";
 
-const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
+const DEFAULT_MODEL = "liquid/lfm-2.5-2.6b:free";
 
 interface WebhookPayload {
   type: string;

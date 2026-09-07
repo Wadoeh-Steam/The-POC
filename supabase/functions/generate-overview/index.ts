@@ -30,7 +30,7 @@ import {
 // was actually confirmed to complete. Unverified against paid alternatives
 // on actual insight quality — worth A/B testing with the same
 // benchmark-harness approach Phase 0 used — see ADR-0010.
-const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
+const DEFAULT_MODEL = "liquid/lfm-2.5-2.6b:free";
 
 interface RequestBody {
   family_id: string;

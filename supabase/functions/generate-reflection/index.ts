@@ -19,7 +19,7 @@ import {
 // 2026-08-14, switched from nemotron-3-super after it failed to complete
 // within a reasonable token budget in testing) — see that function's
 // comment.
-const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
+const DEFAULT_MODEL = "liquid/lfm-2.5-2.6b:free";
 
 interface RequestBody {
   family_id: string;
