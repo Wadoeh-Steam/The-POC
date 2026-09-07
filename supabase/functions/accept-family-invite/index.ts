@@ -1,12 +1,16 @@
 // accept-family-invite — ARCHITECTURE.md §3b, §4.
 // Called right after a newly-invited child completes auth, carrying the
-// invite token from the shared link. Service-role: the invitee has no
-// profiles row yet, so there's no RLS path that would let them create one
-// themselves — validating the token IS the authorization check here, done
+// pairing code they typed in. Service-role: the invitee has no profiles
+// row yet, so there's no RLS path that would let them create one
+// themselves — validating the code IS the authorization check here, done
 // entirely inside this function rather than via RLS.
 
 import { createAdminClient, createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { normalizePairingCode } from "../_shared/pairing-code.ts";
+
+const ATTEMPT_CAP = 10;
+const ATTEMPT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 interface RequestBody {
   token: string;
@@ -38,26 +42,62 @@ Deno.serve(async (req: Request) => {
 
   const admin = createAdminClient();
 
+  // Brute-force guard, keyed by caller since most guesses won't match a
+  // real invite row (see 20260907000009's migration comment).
+  const { data: attemptRow } = await admin
+    .from("invite_redemption_attempts")
+    .select("failed_attempts, window_started_at")
+    .eq("user_id", user.id)
+    .single();
+
+  const windowExpired = attemptRow &&
+    Date.now() - new Date(attemptRow.window_started_at).getTime() > ATTEMPT_WINDOW_MS;
+
+  if (attemptRow && !windowExpired && attemptRow.failed_attempts >= ATTEMPT_CAP) {
+    return jsonResponse({ error: "too_many_attempts" }, 429);
+  }
+
+  const recordFailedAttempt = async () => {
+    if (!attemptRow || windowExpired) {
+      await admin.from("invite_redemption_attempts").upsert({
+        user_id: user.id,
+        failed_attempts: 1,
+        window_started_at: new Date().toISOString(),
+      });
+    } else {
+      await admin
+        .from("invite_redemption_attempts")
+        .update({ failed_attempts: attemptRow.failed_attempts + 1 })
+        .eq("user_id", user.id);
+    }
+  };
+
+  const code = normalizePairingCode(body.token);
+
   const { data: invite, error: inviteError } = await admin
     .from("invites")
     .select("id, family_id, invited_email, invited_role, status, expires_at")
-    .eq("token", body.token)
+    .eq("token", code)
     .single();
 
   if (inviteError || !invite) {
+    await recordFailedAttempt();
     return jsonResponse({ error: "invalid_token" }, 404);
   }
   if (invite.status !== "pending") {
+    await recordFailedAttempt();
     return jsonResponse({ error: `invite_already_${invite.status}` }, 409);
   }
   if (new Date(invite.expires_at) < new Date()) {
     await admin.from("invites").update({ status: "expired" }).eq("id", invite.id);
+    await recordFailedAttempt();
     return jsonResponse({ error: "invite_expired" }, 409);
   }
   if (
     invite.invited_email &&
     invite.invited_email.toLowerCase() !== (user.email ?? "").toLowerCase()
   ) {
+    await recordFailedAttempt();
     return jsonResponse({ error: "email_mismatch" }, 403);
   }
 
@@ -82,6 +122,7 @@ Deno.serve(async (req: Request) => {
   }
 
   await admin.from("invites").update({ status: "accepted" }).eq("id", invite.id);
+  await admin.from("invite_redemption_attempts").delete().eq("user_id", user.id);
 
   return jsonResponse({ ok: true, family_id: invite.family_id });
 });
