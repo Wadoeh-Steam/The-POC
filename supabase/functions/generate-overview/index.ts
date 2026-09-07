@@ -81,11 +81,13 @@ Deno.serve(async (req: Request) => {
 
   const [{ data: logs }, { data: interactions }, { data: reflections }, { data: journalEntries }, { data: childProfile }] =
     await Promise.all([
+      // parent_facing_summary only — the child's raw text must never reach this prompt.
       supabase
         .from("emotion_logs")
-        .select("id, timestamp, valence, valence_classification, labels, associations, journal, log_context_answers(field, answer)")
+        .select("id, timestamp, valence, valence_classification, labels, associations, parent_facing_summary")
         .eq("family_id", body.family_id)
         .eq("context_complete", true)
+        .not("parent_facing_summary", "is", null)
         .order("timestamp", { ascending: true })
         .limit(50),
       supabase
@@ -121,10 +123,8 @@ Deno.serve(async (req: Request) => {
     valence_classification: l.valence_classification,
     labels: l.labels ?? [],
     associations: l.associations ?? [],
-    journal: l.journal,
-    context_answers: Object.fromEntries(
-      (l.log_context_answers ?? []).map((a: { field: LogContextField; answer: string }) => [a.field, a.answer]),
-    ),
+    journal: l.parent_facing_summary, // paraphrased only
+    context_answers: {},
   }));
 
   // TODO: isSpecific is placeholder-false for child logs / parent

@@ -65,8 +65,10 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "invite_creation_failed" }, 500);
   }
 
+  // Universal Link, not the old emotionpoc:// custom scheme — matches the
+  // apple-app-site-association already live at this domain for /invite.
   const redirectBase = Deno.env.get("EMOTIONPOC_APP_REDIRECT_URL") ??
-    "emotionpoc://accept-invite";
+    "https://gustavo.my.id/invite";
   const inviteUrl = `${redirectBase}?token=${token}`;
 
   return jsonResponse({

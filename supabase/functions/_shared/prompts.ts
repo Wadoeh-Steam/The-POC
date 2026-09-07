@@ -697,6 +697,90 @@ export const JOURNAL_INSIGHT_JSON_SCHEMA = {
 };
 
 // ============================================================================
+// 5c. Child guided-journal follow-up evaluation (evaluate-child-log-followup)
+// Separate from buildFollowupEvaluationPrompt since that one is hardcoded
+// to address "orang tua" throughout — reuses followupStageInstruction.
+// ============================================================================
+
+export function buildChildFollowupEvaluationPrompt(
+  questionText: string,
+  answerText: string,
+  followupNumber: 1 | 2,
+): string {
+  const affirmationInstruction = followupNumber === 1
+    ? `Tulis SATU kalimat pendek yang mengakui perasaan anak dari jawabannya — bukan menilai. Ini reaksi PERTAMA di obrolan ini, boleh pakai nada hangat/seruan kayak "Wah..."/"Aduh..." kalau emang pas.`
+    : `Tulis SATU kalimat pendek yang mengakui perasaan anak dari jawabannya — bukan menilai. Ini BUKAN reaksi pertama lagi — JANGAN pakai pembuka seruan yang sama kayak "wah"/"aduh" lagi, kedengerannya dibuat-buat kalau diulang ("sok asik"). Pakai kalimat yang lebih tenang dan personal, kayak beneran nyimak.`;
+
+  return `Kamu bantu lanjutin obrolan guided journal (catatan reflektif harian) seorang anak/remaja.
+
+Pertanyaan sebelumnya: "${questionText}"
+Jawaban anak: "${answerText}"
+
+Tugas 1 — Afirmasi:
+${affirmationInstruction}
+
+Tugas 2 — Follow-up:
+${followupStageInstruction(followupNumber)}
+Ambil KATA KUNCI dari jawaban anak sendiri biar berasa nyambung, bukan pertanyaan generik. Lebih baik pertanyaan TERBUKA daripada pilihan A-atau-B. Sapa santai kayak temen ngobrol — JANGAN pakai sapaan formal ("Adik", "Anda").
+
+Tugas 3 — Sinyal krisis:
+Tandai true HANYA jika jawaban menunjukkan indikasi serius menyakiti diri sendiri, keinginan bunuh diri, atau bahaya langsung terhadap keselamatan. Jangan tandai true untuk emosi negatif biasa (capek, sedih, stres).
+
+Output HARUS JSON valid, tanpa markdown, persis bentuk ini:
+{
+  "affirmation": "<kalimat afirmasi singkat>",
+  "followup_question": "<pertanyaan follow-up singkat>",
+  "crisis_signal": true or false
+}`;
+}
+
+// ============================================================================
+// 5d. Child entry paraphrase (summarize-child-log-entry) — the only thing
+// generate-overview may read for the child signal. Preserves meaning
+// without verbatim text — a paraphrase, not a filter; must not soften,
+// omit, or reinterpret the substance.
+// ============================================================================
+
+export interface ChildEntryParaphraseResult {
+  parent_facing_summary: string;
+}
+
+export function buildChildEntryParaphrasePrompt(
+  qaPairs: { question: string; answer: string }[],
+  childName: string,
+): string {
+  const name = firstName(childName.trim() || "anak");
+  const transcript = qaPairs.map((qa) => `T: ${qa.question}\nJ: ${qa.answer}`).join("\n\n");
+  return `${name} baru saja mengisi guided journal harian. Berikut percakapannya (pertanyaan dan jawaban ASLI dari ${name}):
+
+${transcript}
+
+Tugas: tulis ulang (parafrase) isi jawaban ${name} di atas menjadi 1 paragraf singkat pihak ketiga, untuk dibaca orang tuanya nanti. Aturan KETAT:
+- JANGAN mengubah makna, fakta, atau intensitas perasaan yang diceritakan ${name} — parafrase, bukan menyaring/melunakkan. Kalau ${name} bilang sesuatu yang berat atau tidak nyaman didengar orang tua, tetap sampaikan substansinya, cuma bukan kata-per-kata aslinya.
+- JANGAN menambahkan interpretasi, saran, atau kesimpulan yang tidak ada di jawaban ${name}.
+- JANGAN mengutip ${name} secara verbatim (tanda kutip panjang dari jawaban aslinya) — ini rewrite, bukan kompilasi kutipan.
+- ${CAUTIOUS_LANGUAGE_RULE_ID}
+- Bahasa Indonesia natural, plain text, tanpa markdown.
+
+Output HARUS JSON valid, tanpa markdown, persis bentuk ini:
+{
+  "parent_facing_summary": "<1 paragraf singkat, parafrase pihak ketiga>"
+}`;
+}
+
+export const CHILD_ENTRY_PARAPHRASE_JSON_SCHEMA = {
+  name: "child_entry_paraphrase",
+  schema: {
+    type: "object",
+    properties: {
+      parent_facing_summary: { type: "string" },
+    },
+    required: ["parent_facing_summary"],
+    additionalProperties: false,
+  },
+};
+
+// ============================================================================
 // 6. Parent-only overview (be1, parent-side-only path)
 //
 // Distinct from buildOverviewPrompt (§3): that one combines child emotion
