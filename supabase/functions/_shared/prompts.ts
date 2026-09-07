@@ -698,13 +698,8 @@ export const JOURNAL_INSIGHT_JSON_SCHEMA = {
 
 // ============================================================================
 // 5c. Child guided-journal follow-up evaluation (evaluate-child-log-followup)
-//
-// Same fixed 3-question arc (anchor + 2 follow-ups) and same
-// FOLLOWUP_EVALUATION_JSON_SCHEMA shape as buildFollowupEvaluationPrompt —
-// this is a separate prompt function, not a reuse of that one, because its
-// copy is hardcoded to "orang tua" (the parent) throughout and would
-// misaddress a child. Reuses followupStageInstruction (the digging-deeper
-// vs closing-question logic isn't role-specific).
+// Separate from buildFollowupEvaluationPrompt since that one is hardcoded
+// to address "orang tua" throughout — reuses followupStageInstruction.
 // ============================================================================
 
 export function buildChildFollowupEvaluationPrompt(
@@ -740,15 +735,10 @@ Output HARUS JSON valid, tanpa markdown, persis bentuk ini:
 }
 
 // ============================================================================
-// 5d. Child entry paraphrase (summarize-child-log-entry) — the ONLY thing
-// generate-overview is allowed to read for the child signal (see the
-// 20260907000001 migration's comment on emotion_logs.parent_facing_summary).
-// Rewrites the child's answers so the parent gets the meaning without the
-// verbatim text — "perhalus/parafrase tanpa mengubah value" (product
-// decision): the output must preserve exactly what the child reported,
-// including anything uncomfortable for the parent to hear, just not in the
-// child's own literal wording. This is a paraphrase, not a filter — it must
-// not soften, omit, or reinterpret the substance.
+// 5d. Child entry paraphrase (summarize-child-log-entry) — the only thing
+// generate-overview may read for the child signal. Preserves meaning
+// without verbatim text — a paraphrase, not a filter; must not soften,
+// omit, or reinterpret the substance.
 // ============================================================================
 
 export interface ChildEntryParaphraseResult {

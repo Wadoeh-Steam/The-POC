@@ -1,17 +1,7 @@
-// summarize-child-log-entry — DB webhook on emotion_logs INSERT, fired only
-// when context_complete = true (20260907000001_child_guided_journal_flow.sql),
-// alongside (not instead of) generate-how-to-react's existing webhook on the
-// same event.
-//
-// Writes emotion_logs.parent_facing_summary — a paraphrased, value-
-// preserving rewrite of the child's answers. This is the ONLY thing
-// generate-overview is allowed to read for the child signal; the raw
-// journal/log_context_answers.answer text never reaches the parent-facing
-// prompt. Runs unconditionally (both llm_mode values) — unlike
-// generate-how-to-react, there's no on-device equivalent for this yet (the
-// child's own device has no reason to pre-compute a *parent-facing*
-// artifact), so this always calls the server LLM chain regardless of the
-// child's llm_mode setting.
+// summarize-child-log-entry — DB webhook on emotion_logs INSERT
+// (context_complete = true), alongside generate-how-to-react's webhook.
+// Writes parent_facing_summary — the only thing generate-overview is
+// allowed to read for the child signal. No on-device path; always server.
 
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 import { jsonResponse } from "../_shared/cors.ts";
@@ -97,10 +87,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ ok: true });
   } catch (err) {
-    // Fail open: an LLM hiccup here must not block the child's entry from
-    // existing — it just means generate-overview won't have this entry's
-    // paraphrase available yet (its own query already only reads entries
-    // with parent_facing_summary set, see generate-overview/index.ts).
+    // Fail open — generate-overview simply won't have this entry's paraphrase yet.
     console.error("summarize-child-log-entry: generation failed", err);
     return jsonResponse({ error: "generation_failed" }, 502);
   }

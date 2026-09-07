@@ -81,12 +81,7 @@ Deno.serve(async (req: Request) => {
 
   const [{ data: logs }, { data: interactions }, { data: reflections }, { data: journalEntries }, { data: childProfile }] =
     await Promise.all([
-      // parent_facing_summary only — never journal/log_context_answers.answer
-      // directly. The child's raw text must never reach this prompt; the
-      // .not(...) filter means an entry whose summarize-child-log-entry call
-      // hasn't landed yet (or failed) is simply not included this run rather
-      // than falling back to raw text. See 20260907000001's migration
-      // comment on emotion_logs.parent_facing_summary.
+      // parent_facing_summary only — the child's raw text must never reach this prompt.
       supabase
         .from("emotion_logs")
         .select("id, timestamp, valence, valence_classification, labels, associations, parent_facing_summary")
@@ -128,10 +123,7 @@ Deno.serve(async (req: Request) => {
     valence_classification: l.valence_classification,
     labels: l.labels ?? [],
     associations: l.associations ?? [],
-    // Paraphrased only — see the select() above. context_answers stays
-    // empty: the per-field breakdown is folded into the paraphrase prose
-    // rather than exposed field-by-field to this prompt.
-    journal: l.parent_facing_summary,
+    journal: l.parent_facing_summary, // paraphrased only
     context_answers: {},
   }));
 

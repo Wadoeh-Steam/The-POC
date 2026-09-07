@@ -1,10 +1,5 @@
-// select-child-log-questions — child-side mirror of
-// select-parent-log-questions. Rule-based, NOT an LLM call — same
-// "cheap/synchronous, runs before the guided-journal UI's first screen"
-// reasoning. Picks a validating affirmation + one open-ended anchor
-// question, built from what the child already picked on the
-// valence/label/association screens, same mechanism as the parent flow,
-// copy reworded to address the child directly (not "orang tua").
+// select-child-log-questions — child-side mirror of select-parent-log-questions.
+// Rule-based, not an LLM call. Copy reworded to address the child directly.
 
 import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
@@ -104,10 +99,7 @@ function joinNatural(items: string[]): string {
   return `${cleaned.slice(0, -1).join(", ")}, dan ${cleaned[cleaned.length - 1]}`;
 }
 
-// Same idea as select-parent-log-questions' CHILD_RELATED_KEYWORDS, mirrored
-// for the family/parent side of the relationship — only mention family when
-// the picked topic actually looks relationship-shaped, not for a personal
-// pick like "Nilai Ujian" or "Tidur Cukup".
+// Only mention family when the picked topic actually looks relationship-shaped.
 const FAMILY_RELATED_KEYWORDS = ["orang tua", "keluarga", "mama", "papa", "ayah", "ibu", "hubungan"];
 
 function isFamilyRelated(associations: string[]): boolean {

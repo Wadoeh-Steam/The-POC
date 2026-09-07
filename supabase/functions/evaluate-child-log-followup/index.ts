@@ -1,9 +1,5 @@
-// evaluate-child-log-followup — child-side mirror of
-// evaluate-parent-log-followup. Called per question view, in real time,
-// while the child is still on that screen. Always generates a follow-up
-// (fixed 3-question arc: anchor + 2 follow-ups). Does not write to the
-// database; the client holds all answers in memory until
-// submit-child-log-entry.
+// evaluate-child-log-followup — child-side mirror of evaluate-parent-log-followup.
+// Fixed 3-question arc (anchor + 2 follow-ups). Doesn't write to the database.
 
 import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
@@ -70,9 +66,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({
       affirmation: parsed.affirmation,
       followup_question: parsed.followup_question,
-      // Kept for schema consistency — crisis detection on this path is
-      // deferred (backlog), same as evaluate-parent-log-followup, accepted
-      // and returned but not acted on yet.
+      // Accepted but not acted on — crisis detection on this path is backlog.
       crisis_signal: parsed.crisis_signal === true,
       skipped: false,
       provider: result.provider,

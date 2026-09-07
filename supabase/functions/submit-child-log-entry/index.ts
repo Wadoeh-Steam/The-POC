@@ -1,12 +1,7 @@
 // submit-child-log-entry — child-side mirror of submit-parent-log-entry.
-// Called once, at the end of the guided-journal flow, with every
-// anchor + followup answer collected client-side. Writes emotion_logs +
-// log_context_answers (ARCHITECTURE.md §3, §3a) — insert incomplete
-// first, write answers, then flip context_complete, same honest-partial-
-// row-on-failure structure as the parent path.
-//
-// context_complete=true is what fires two DB webhooks (20260814000003 +
-// 20260907000001): generate-how-to-react and summarize-child-log-entry.
+// Writes emotion_logs + log_context_answers, insert-incomplete-then-flip
+// same as the parent path. context_complete=true fires generate-how-to-react
+// and summarize-child-log-entry (DB webhooks).
 
 import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
