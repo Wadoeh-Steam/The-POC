@@ -65,8 +65,16 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "invite_creation_failed" }, 500);
   }
 
+  // Universal Link, not the old emotionpoc:// custom scheme — matches the
+  // apple-app-site-association already live at this domain for /invite and
+  // /invite/* (com.apple.developer.associated-domains in the iOS client's
+  // entitlements). A custom scheme only fires if the app is already
+  // installed; this domain's /invite landing page handles the not-yet-
+  // installed case (install instructions — no App Store listing yet, see
+  // that page's own copy) so tapping the link twice (once before install,
+  // once after) still completes pairing without deferred-deep-link infra.
   const redirectBase = Deno.env.get("EMOTIONPOC_APP_REDIRECT_URL") ??
-    "emotionpoc://accept-invite";
+    "https://gustavo.my.id/invite";
   const inviteUrl = `${redirectBase}?token=${token}`;
 
   return jsonResponse({
