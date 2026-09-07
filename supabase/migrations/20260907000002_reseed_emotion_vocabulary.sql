@@ -1,11 +1,5 @@
--- Both emotion_label_vocabulary and emotion_association_vocabulary are
--- unexpectedly empty on the live project — including the original 16/4-row
--- seeds from 20260814000001_initial_schema.sql, which the migration
--- tracking table has always shown as applied. Found live 2026-09-07: every
--- real label submission failed validate_emotion_vocabulary() with "Unknown
--- emotion label(s)", not just the newly-expanded set from
--- 20260907000001 — the table had zero rows to validate against at all.
--- Re-seeding idempotently; not attempting to explain how they emptied.
+-- Both vocabulary tables were unexpectedly empty live, including the
+-- original seeds from 20260814000001 — re-seeding idempotently.
 
 insert into emotion_label_vocabulary (value) values
   ('calm'), ('hopeful'), ('frustrated'), ('annoyed'), ('lonely'), ('sad'),

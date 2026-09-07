@@ -61,11 +61,8 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "email_mismatch" }, 403);
   }
 
-  // Retries on Postgres 23503 — the auth.users row this same request's
-  // caller just created via Sign-in-with-Apple can occasionally not yet be
-  // visible to this INSERT's FK check (found live 2026-09-07, same race as
-  // create_family's client-side retry). Server-side here since this
-  // function is closer to the DB than a client round-trip retry would be.
+  // Retries on 23503 — the auth.users row this caller just created can
+  // occasionally not yet be visible to this INSERT's FK check.
   let profileError: { code?: string; message?: string } | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const { error } = await admin.from("profiles").insert({
