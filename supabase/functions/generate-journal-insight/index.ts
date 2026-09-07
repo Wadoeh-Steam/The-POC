@@ -6,9 +6,13 @@
 // Answer/submit — the parent sees a short "kesimpulan + validasi emosi"
 // reflection before deciding to send.
 //
-// Same in-memory-only rule as evaluate-parent-log-followup: nothing is
-// persisted by this call, it only reasons over the Q&A pairs the client
-// passes in. submit-parent-log-entry remains the only write.
+// The live response is always in-memory-only for the immediate Preview
+// screen, same as evaluate-parent-log-followup. But when `entry_id` is
+// given (the entry submit-parent-log-entry already created), this ALSO
+// best-effort persists onto parent_log_entries.insight_text so a later
+// view of that same entry (DashboardView) shows the same insight instead
+// of falling back — found 2026-09-07: entry_id was accepted for exactly
+// this since 2026-08-30 but never actually used, so it was always null.
 
 import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
@@ -19,7 +23,7 @@ import {
   type JournalInsightResult,
 } from "../_shared/prompts.ts";
 
-const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
+const DEFAULT_MODEL = "liquid/lfm-2.5-2.6b:free";
 // Same class as check-log-context's write-path budget — this blocks a
 // visible "Lanjut" tap, but needs a bit more room than
 // evaluate-parent-log-followup's 5s since it reasons over up to 3 Q&A
@@ -29,6 +33,7 @@ const TOTAL_BUDGET_MS = 8000;
 interface RequestBody {
   child_name: string;
   qa_pairs: { question_text: string; answer_text: string }[];
+  entry_id?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -66,6 +71,18 @@ Deno.serve(async (req: Request) => {
     }, TOTAL_BUDGET_MS);
 
     const parsed = parseJsonResponse<JournalInsightResult>(result.text);
+
+    if (body.entry_id) {
+      const { error: persistError } = await supabase
+        .from("parent_log_entries")
+        .update({ insight_text: `${parsed.kesimpulan} ${parsed.validasi_emosi}` })
+        .eq("id", body.entry_id);
+      // Best-effort — the live response below already carries the insight
+      // for the immediate Preview screen regardless of whether this lands.
+      if (persistError) {
+        console.error("generate-journal-insight: failed to persist insight_text", persistError);
+      }
+    }
 
     return jsonResponse({
       kesimpulan: parsed.kesimpulan,

@@ -20,17 +20,19 @@ import {
 
 // User decision (2026-08-14): free-tier OpenRouter models for all four LLM
 // tasks, including this one — despite it including crisis-signal detection
-// (§2b), the single highest-stakes classification in the app. Empirically
-// tested against all 5 free + structured-output-capable models available:
-// this is a reasoning model that burns several hundred tokens "thinking"
-// before emitting the actual JSON — real, accepted latency cost on the
-// child's write path (§3a) — but it's the only free option that actually
-// followed the instruction correctly in testing (others either truncated
-// before finishing or just echoed the prompt's placeholder text back).
-// Not a substitute for the mandatory keyword pre-filter layer (§2b), which
-// stays deterministic and model-independent regardless of this choice.
-// See ADR-0010's "Free-tier model swap" section for the full trade-off.
-const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
+// (§2b), the single highest-stakes classification in the app. Not a
+// substitute for the mandatory keyword pre-filter layer (§2b), which stays
+// deterministic and model-independent regardless of this choice. See
+// ADR-0010's "Free-tier model swap" section for the original trade-off.
+//
+// nvidia/nemotron-nano-9b-v2:free (the original pick — a reasoning model
+// that burned several hundred tokens "thinking" before the actual JSON,
+// an accepted latency cost on the child's write path) was deprecated and
+// pulled from OpenRouter entirely (2026-09-07, hard 404). Replaced with
+// liquid/lfm-2.5-2.6b:free, which does NOT have that cost — its reasoning
+// (if any) stays in a separate response field, content is clean JSON
+// directly — verified live against this same schema.
+const DEFAULT_MODEL = "liquid/lfm-2.5-2.6b:free";
 
 interface RequestBody {
   valence: number;

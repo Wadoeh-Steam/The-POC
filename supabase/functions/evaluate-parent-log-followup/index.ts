@@ -16,7 +16,7 @@ import {
   type FollowupEvaluationResult,
 } from "../_shared/prompts.ts";
 
-const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
+const DEFAULT_MODEL = "liquid/lfm-2.5-2.6b:free";
 const TOTAL_BUDGET_MS = 5000;
 
 // Used only if the LLM chain fails outright — keeps the 3-question arc

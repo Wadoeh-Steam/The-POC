@@ -21,12 +21,12 @@ import {
 // User decision (2026-08-14): free-tier OpenRouter model. `google/gemma-4-
 // 26b-a4b-it:free` was the original pick for tone reasons, but hit a 429
 // on OpenRouter's shared free-tier pool during testing (not this app's own
-// usage — congestion from other free users) — switched to the one free
-// model that was empirically confirmed working end-to-end, same as
-// check-log-context. It's a reasoning model too — see that function's
-// comment for the latency trade-off, which applies here as well, just
-// less critically since this call isn't on the write-path itself.
-const DEFAULT_MODEL = "nvidia/nemotron-nano-9b-v2:free";
+// usage — congestion from other free users; re-confirmed still true
+// 2026-09-07) — switched to nvidia/nemotron-nano-9b-v2:free, same as
+// check-log-context, until THAT was deprecated/pulled from OpenRouter
+// entirely (2026-09-07) — see check-log-context's comment for that
+// history and why liquid/lfm-2.5-2.6b:free replaced it there and here.
+const DEFAULT_MODEL = "liquid/lfm-2.5-2.6b:free";
 
 interface WebhookPayload {
   type: string;

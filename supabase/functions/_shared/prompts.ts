@@ -697,6 +697,47 @@ export const JOURNAL_INSIGHT_JSON_SCHEMA = {
 };
 
 // ============================================================================
+// 5b-child. Child guided-journal insight (generate-child-log-insight)
+// Same shape/slot as buildJournalInsightPrompt, but addressed directly to
+// the child ("kamu") about their own entry — not paraphrased about them to
+// a parent (that's buildChildEntryParaphrasePrompt/§5d, a separate output).
+// ============================================================================
+
+export function buildChildJournalInsightPrompt(
+  qaPairs: { question: string; answer: string }[],
+): string {
+  const transcript = qaPairs.map((qa) => `T: ${qa.question}\nJ: ${qa.answer}`).join("\n\n");
+  return `Kamu bantu seorang anak/remaja abis nulis guided journal harian. Berikut percakapannya:
+
+${transcript}
+
+Buat refleksi singkat sebagai JSON saja, persis bentuk ini:
+{
+  "kesimpulan": "<1-2 kalimat singkat merangkum apa yang baru diceritakan anak ini, disampaikan LANGSUNG ke anak itu pakai \"kamu\">",
+  "validasi_emosi": "<1-2 kalimat yang mengakui/memvalidasi perasaan anak sebagai hal yang wajar, bukan menilai, disampaikan LANGSUNG pakai \"kamu\">"
+}
+
+Aturan:
+- ${CAUTIOUS_LANGUAGE_RULE_ID}
+- Sapa santai kayak temen ngobrol — JANGAN pakai sapaan formal ("Adik", "Anda").
+- Jangan menyimpulkan lebih dari yang benar-benar tersirat dari jawaban di atas.
+- Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
+}
+
+export const CHILD_JOURNAL_INSIGHT_JSON_SCHEMA = {
+  name: "child_journal_insight",
+  schema: {
+    type: "object",
+    properties: {
+      kesimpulan: { type: "string" },
+      validasi_emosi: { type: "string" },
+    },
+    required: ["kesimpulan", "validasi_emosi"],
+    additionalProperties: false,
+  },
+};
+
+// ============================================================================
 // 5c. Child guided-journal follow-up evaluation (evaluate-child-log-followup)
 // Separate from buildFollowupEvaluationPrompt since that one is hardcoded
 // to address "orang tua" throughout — reuses followupStageInstruction.
