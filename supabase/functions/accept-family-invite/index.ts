@@ -61,16 +61,27 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "email_mismatch" }, 403);
   }
 
-  const { error: profileError } = await admin.from("profiles").insert({
-    id: user.id,
-    family_id: invite.family_id,
-    role: invite.invited_role,
-    display_name: body.display_name || "Anak",
-  });
+  // Retries on Postgres 23503 — the auth.users row this same request's
+  // caller just created via Sign-in-with-Apple can occasionally not yet be
+  // visible to this INSERT's FK check (found live 2026-09-07, same race as
+  // create_family's client-side retry). Server-side here since this
+  // function is closer to the DB than a client round-trip retry would be.
+  let profileError: { code?: string; message?: string } | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { error } = await admin.from("profiles").insert({
+      id: user.id,
+      family_id: invite.family_id,
+      role: invite.invited_role,
+      display_name: body.display_name || "Anak",
+    });
+    profileError = error;
+    if (!error || error.code !== "23503" || attempt === 2) break;
+    await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+  }
 
   if (profileError) {
     console.error("accept-family-invite: profile insert failed", profileError);
-    return jsonResponse({ error: "profile_creation_failed" }, 500);
+    return jsonResponse({ error: "profile_creation_failed", code: profileError.code }, 500);
   }
 
   await admin.from("invites").update({ status: "accepted" }).eq("id", invite.id);
