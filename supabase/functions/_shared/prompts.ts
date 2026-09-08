@@ -418,6 +418,7 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
 
 Aturan:
 - Maksimal 3 "patterns" — kalau data cuma cukup mendukung 1-2 pola yang solid, kirim 1-2 aja. Jangan dipaksakan sampai 3.
+- Setiap "topic" di antara patterns HARUS berbeda satu sama lain. Kalau ada beberapa observasi yang sama-sama masuk kategori "topic" yang sama, GABUNGKAN jadi satu pattern saja (satu "observation" yang merangkum semuanya, satu "suggested_approach") — jangan kirim 2 pattern terpisah dengan "topic" yang sama.
 - Kalau ada jurnal terpandu [spesifik], jadikan itu dasar utama pattern/suggested_approach — datanya paling detail dibanding catatan lain.
 - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
 - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
