@@ -822,6 +822,66 @@ export const CHILD_ENTRY_PARAPHRASE_JSON_SCHEMA = {
 };
 
 // ============================================================================
+// 5e. Parent entry bridge for child (bridge-parent-log-entry) — the mirror
+// of buildChildEntryParaphrasePrompt/§5d, but a DIFFERENT philosophy on
+// purpose. §5d preserves the child's substance/intensity faithfully, never
+// softens. This one may genuinely soften/reframe a parent's harsh judgment
+// of their child — a child reading raw parental judgment is a different
+// harm profile than a parent reading a paraphrased child complaint. Must
+// still preserve TOPIC (what the entry was actually about), just not tone
+// or judgment — a reframe with no real content is worthless to the child.
+// Also carries its own crisis_signal: genuine safety-relevant disclosures
+// get withheld by the caller entirely rather than reframed (see
+// bridge-parent-log-entry), not the same trigger as buildChildFollowup-
+// EvaluationPrompt's (that one is about the CHILD's safety; this one is
+// about whatever the PARENT's entry reveals).
+// ============================================================================
+
+export interface ParentEntryBridgeResult {
+  child_facing_summary: string;
+  crisis_signal: boolean;
+}
+
+export function buildParentEntryBridgePrompt(
+  qaPairs: { question: string; answer: string }[],
+): string {
+  const transcript = qaPairs.map((qa) => `T: ${qa.question}\nJ: ${qa.answer}`).join("\n\n");
+  return `Orang tua baru saja mengisi guided journal harian. Berikut percakapannya (jawaban ASLI orang tua, belum disaring):
+
+${transcript}
+
+Tugas: tulis ulang isi jawaban orang tua di atas menjadi versi yang AMAN dibaca anaknya sendiri nanti — bukan sekadar parafrase, tapi benar-benar dibungkus ulang biar nggak menyakiti kalau ada penilaian yang kasar. Aturan KETAT:
+- JANGAN pernah meneruskan penilaian kasar/menghakimi kata-per-kata (misal "bodoh", "males", "nyusahin") walau itu ADA di jawaban orang tua — tulis ulang jadi nada yang jauh lebih lembut dan pengertian, fokus ke kekhawatiran di baliknya, bukan label kasarnya.
+- TAPI jangan sampai jadi basa-basi kosong yang nggak ngasih tau apa-apa (misal "orang tuamu sayang banget sama kamu" doang, tanpa konteks) — anak tetap harus tau TOPIK/KONTEKS apa yang sebenarnya diceritakan orang tuanya (soal sekolah, soal di rumah, dll), cuma nada penilaiannya yang diubah total, bukan substansinya dihilangkan.
+- Tulis dari sudut pandang PIHAK KETIGA yang bijak — sapa anak sebagai "kamu", rujuk orang tua sebagai "orang tuamu". JANGAN meniru gaya bicara orang tua ("aku"/"saya").
+- ${CAUTIOUS_LANGUAGE_RULE_ID}
+- JANGAN mengutip jawaban orang tua secara verbatim (tanda kutip panjang dari jawaban aslinya).
+- Bahasa Indonesia natural, plain text, tanpa markdown, 1-2 kalimat singkat saja.
+
+Tugas tambahan — deteksi krisis:
+Tandai "crisis_signal": true HANYA kalau jawaban orang tua menunjukkan indikasi serius bahaya keselamatan (kekerasan, niat menyakiti, krisis akut) — BUKAN sekadar kata-kata kasar atau emosi negatif biasa (capek, kesel, kecewa). Kalau true, isi "child_facing_summary" boleh string kosong — nggak akan ditampilkan ke anak sama sekali, jangan dipaksain nulis reframe untuk kasus ini.
+
+Output HARUS JSON valid, tanpa markdown, persis bentuk ini:
+{
+  "child_facing_summary": "<1-2 kalimat, pihak ketiga, aman dibaca anak>",
+  "crisis_signal": true or false
+}`;
+}
+
+export const PARENT_ENTRY_BRIDGE_JSON_SCHEMA = {
+  name: "parent_entry_bridge",
+  schema: {
+    type: "object",
+    properties: {
+      child_facing_summary: { type: "string" },
+      crisis_signal: { type: "boolean" },
+    },
+    required: ["child_facing_summary", "crisis_signal"],
+    additionalProperties: false,
+  },
+};
+
+// ============================================================================
 // 6. Parent-only overview (be1, parent-side-only path)
 //
 // Distinct from buildOverviewPrompt (§3): that one combines child emotion
