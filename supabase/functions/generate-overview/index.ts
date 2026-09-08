@@ -9,14 +9,13 @@ import { createUserClient } from "../_shared/supabase-admin.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { callLlmWithFallback, parseJsonResponse } from "../_shared/llm.ts";
 import {
+  type BridgedParentLogEntryForPrompt,
   buildOverviewPrompt,
   deriveConfidenceTier,
   type EmotionLogForPrompt,
-  type LogContextField,
   OVERVIEW_JSON_SCHEMA,
   type OverviewResult,
   type ParentInteractionForPrompt,
-  type ParentLogEntryForPrompt,
   type ParentReflectionForPrompt,
 } from "../_shared/prompts.ts";
 
@@ -102,11 +101,18 @@ Deno.serve(async (req: Request) => {
         .eq("family_id", body.family_id)
         .order("timestamp", { ascending: true })
         .limit(20),
+      // child_facing_summary only — the parent's raw guided-journal answers
+      // must never reach this prompt (this overview is read by BOTH parent
+      // and child). parent_log_answers(sequence) is fetched ONLY to count
+      // answers for isSpecific below — question_text/answer_text are never
+      // selected, so raw parent text never even leaves the database for
+      // this function.
       supabase
         .from("parent_log_entries")
-        .select("timestamp, parent_log_answers(field, question_text, answer_text, sequence)")
+        .select("timestamp, child_facing_summary, parent_log_answers(sequence)")
         .eq("family_id", body.family_id)
         .eq("context_complete", true)
+        .not("child_facing_summary", "is", null)
         .order("timestamp", { ascending: true })
         .limit(20),
       supabase
@@ -145,14 +151,12 @@ Deno.serve(async (req: Request) => {
   // only stops the chain early (fewer than the 3-question hard cap) when it
   // detected a cognitive mechanism, so an entry with < 3 answers is a good
   // proxy for "spesifik" without needing another LLM call here.
-  const journalEntriesForPrompt: ParentLogEntryForPrompt[] = (journalEntries ?? []).map((e) => {
-    const answers = (e.parent_log_answers ?? []) as { field: LogContextField; question_text: string; answer_text: string; sequence: number }[];
+  const journalEntriesForPrompt: BridgedParentLogEntryForPrompt[] = (journalEntries ?? []).map((e) => {
+    const answerCount = (e.parent_log_answers ?? []).length;
     return {
       timestamp: e.timestamp,
-      isSpecific: answers.length < 3,
-      answers: answers
-        .sort((a, b) => a.sequence - b.sequence)
-        .map((a) => ({ field: a.field, questionText: a.question_text, answerText: a.answer_text })),
+      isSpecific: answerCount < 3,
+      summary: e.child_facing_summary as string, // non-null — filtered by the query above
     };
   });
 
