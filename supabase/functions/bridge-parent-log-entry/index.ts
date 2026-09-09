@@ -12,6 +12,7 @@
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 import { jsonResponse } from "../_shared/cors.ts";
 import { callLlmWithFallback, parseJsonResponse } from "../_shared/llm.ts";
+import { sendApnsPush } from "../_shared/apns.ts";
 import {
   buildParentEntryBridgePrompt,
   PARENT_ENTRY_BRIDGE_JSON_SCHEMA,
@@ -40,9 +41,38 @@ Deno.serve(async (req: Request) => {
   }
 
   const entryId = payload.record?.id;
+  const familyId = payload.record?.family_id;
   if (!entryId) return jsonResponse({ error: "missing record.id" }, 400);
 
   const admin = createAdminClient();
+
+  // Best-effort, never blocks the bridge itself on push failures — a child
+  // who missed the notification still sees the real content next time they
+  // open the app, same fail-open posture as the LLM generation below.
+  const notifyChild = async () => {
+    if (!familyId) return;
+    const { data: childTokens } = await admin
+      .from("device_tokens")
+      .select("apns_token, profiles!inner(family_id, role)")
+      .eq("profiles.family_id", familyId)
+      .eq("profiles.role", "child");
+    const tokens = (childTokens ?? []).map((t) => t.apns_token);
+    if (tokens.length === 0) return;
+    const results = await Promise.allSettled(
+      tokens.map((token) =>
+        sendApnsPush(token, {
+          alertTitle: "Jurnal baru dari orang tuamu",
+          // Deliberately no content preview — same reason this whole
+          // feature exists: a lock-screen notification is a leak surface
+          // this session's bridge work was specifically built to close.
+          alertBody: "Orang tuamu baru aja nulis jurnal. Yuk buka buat liat.",
+          customData: { type: "new_parent_journal", parent_log_entry_id: entryId },
+        })
+      ),
+    );
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) console.error("bridge-parent-log-entry: some pushes failed", failures);
+  };
 
   const { data: answers, error: answersError } = await admin
     .from("parent_log_answers")
@@ -88,6 +118,8 @@ Deno.serve(async (req: Request) => {
       console.error("bridge-parent-log-entry: update failed", updateError);
       return jsonResponse({ error: "update_failed" }, 500);
     }
+
+    await notifyChild();
 
     return jsonResponse({ ok: true });
   } catch (error) {
