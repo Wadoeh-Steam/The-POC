@@ -107,7 +107,12 @@ Deno.serve(async (req: Request) => {
             })
           ),
         );
-        const failures = results.filter((r) => r.status === "rejected");
+        // sendApnsPush resolves (doesn't throw) even on a non-2xx Apple
+        // response, so a rejected-only filter here misses real APNs
+        // errors (BadDeviceToken, InvalidProviderToken, etc.) — check both.
+        const failures = results.filter((r) =>
+          r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok)
+        );
         if (failures.length > 0) console.error("summarize-child-log-entry: some pushes failed", failures);
       }
     }
