@@ -6,6 +6,7 @@
 import { createAdminClient } from "../_shared/supabase-admin.ts";
 import { jsonResponse } from "../_shared/cors.ts";
 import { callLlmWithFallback, parseJsonResponse } from "../_shared/llm.ts";
+import { sendApnsPush } from "../_shared/apns.ts";
 import {
   buildChildEntryParaphrasePrompt,
   type ChildEntryParaphraseResult,
@@ -20,6 +21,7 @@ interface WebhookPayload {
   record: {
     id: string;
     child_id: string;
+    family_id: string;
     context_complete: boolean;
   };
 }
@@ -83,6 +85,31 @@ Deno.serve(async (req: Request) => {
     if (updateError) {
       console.error("summarize-child-log-entry: update failed", updateError);
       return jsonResponse({ error: "update_failed" }, 500);
+    }
+
+    // Best-effort, never blocks the summary itself on push failures — same
+    // fail-open posture as generation above. No content preview in the
+    // body, matching the parent->child direction's push.
+    if (record.family_id) {
+      const { data: parentTokens } = await supabase
+        .from("device_tokens")
+        .select("apns_token, profiles!inner(family_id, role)")
+        .eq("profiles.family_id", record.family_id)
+        .eq("profiles.role", "parent");
+      const tokens = (parentTokens ?? []).map((t) => t.apns_token);
+      if (tokens.length > 0) {
+        const results = await Promise.allSettled(
+          tokens.map((token) =>
+            sendApnsPush(token, {
+              alertTitle: `Jurnal baru dari ${profile.display_name}`,
+              alertBody: `${profile.display_name} baru aja nulis jurnal. Yuk buka buat liat.`,
+              customData: { type: "new_child_journal", emotion_log_id: record.id },
+            })
+          ),
+        );
+        const failures = results.filter((r) => r.status === "rejected");
+        if (failures.length > 0) console.error("summarize-child-log-entry: some pushes failed", failures);
+      }
     }
 
     return jsonResponse({ ok: true });
