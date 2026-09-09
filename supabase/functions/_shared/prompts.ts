@@ -332,11 +332,33 @@ function compactParentContextTagged(
   return lines.join("\n");
 }
 
+// The child's raw text must never reach this prompt (compactLogsTagged
+// above already enforces that via parent_facing_summary). Symmetric rule
+// for the parent's side: the parent's raw guided-journal answers must
+// never reach this prompt either, since this overview is read by BOTH
+// parent and child — only bridge-parent-log-entry's protective reframe
+// (child_facing_summary) is safe for that. Deliberately a SEPARATE type
+// from ParentLogEntryForPrompt/compactParentLogEntries below — those back
+// buildParentOnlyOverviewPrompt (§6), a parent-only-facing coach prompt
+// where the parent's raw words are exactly what's needed and never leak
+// anywhere, so they keep using the real answers.
+export interface BridgedParentLogEntryForPrompt {
+  timestamp: string;
+  isSpecific: boolean;
+  summary: string;
+}
+
+function compactBridgedParentLogEntries(entries: BridgedParentLogEntryForPrompt[]): string {
+  return entries
+    .map((e) => `- ${e.timestamp.slice(0, 10)} [${e.isSpecific ? "spesifik" : "general"}] ${e.summary}`)
+    .join("\n");
+}
+
 export function buildOverviewPrompt(
   logs: TaggedEmotionLogForPrompt[],
   interactions: TaggedParentInteractionForPrompt[],
   reflections: TaggedParentReflectionForPrompt[],
-  guidedJournalEntries: ParentLogEntryForPrompt[],
+  guidedJournalEntries: BridgedParentLogEntryForPrompt[],
   childName: string,
   childConfidenceTier: ConfidenceTier,
   parentConfidenceTier: ConfidenceTier,
@@ -348,7 +370,9 @@ export function buildOverviewPrompt(
     interactions.filter((i) => i.isSpecific).length +
     reflections.filter((r) => r.isSpecific).length +
     guidedJournalEntries.filter((e) => e.isSpecific).length;
-  return `Kamu adalah asisten keluarga yang empatik. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi, DAN memberi penyesuaian komunikasi yang konkret, spesifik, dan low-effort untuk minggu ini. Tujuannya membantu orang tua memahami perspektif anaknya dengan lebih berempati, dan pindah dari nasihat satu arah ke memvalidasi perasaan anak dulu.
+  return `Kamu adalah asisten keluarga yang empatik, menulis rangkuman minggu ini untuk DIBACA LANGSUNG oleh anak — bukan oleh orang tuanya. Tugasmu menggabungkan catatan emosi anak dengan konteks dari orang tua menjadi ringkasan hubungan yang hati-hati dan tidak menghakimi, DAN memberi gambaran penyesuaian komunikasi yang mungkin dicoba orang tuanya minggu ini. Tujuannya membantu anak memahami perspektif orang tuanya dengan lebih berempati.
+
+Sapa pembaca (anak) sebagai "kamu" di SELURUH output (headline, summary, patterns, key_insight) — JANGAN pernah sebut namanya, dia sendiri yang baca ini, bukan dibicarakan sebagai pihak ketiga. Rujuk orang tuanya sebagai "orang tuamu". JANGAN pakai bahasa formal ("saya"/"Anda").
 
 Data minggu ini:
 - Anak: ${logs.length} catatan, ${childSpecificCount} di antaranya spesifik. Confidence: ${childConfidenceTier}.
@@ -359,7 +383,7 @@ ${compactLogsTagged(logs)}
 Konteks dari orang tua (interaksi terakhir dan refleksi, ditandai [spesifik] atau [general] per catatan):
 ${compactParentContextTagged(interactions, reflections)}
 Jurnal terpandu orang tua (guided journal minggu ini, ditandai [spesifik] atau [general] per catatan — ini biasanya sumber paling kaya karena orang tua diajak cerita lebih dalam soal satu momen):
-${compactParentLogEntries(guidedJournalEntries)}
+${compactBridgedParentLogEntries(guidedJournalEntries)}
 
 Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
 
@@ -371,7 +395,7 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
       {
         "topic": "Pendidikan|Pertemanan|Keluarga|Lainnya",
         "observation": "<1 kalimat pendek, hati-hati, sespesifik data-nya — sebut hari/konteks kalau polanya jelas>",
-        "suggested_approach": "<1 kalimat: penyesuaian komunikasi konkret buat pola ini minggu depan, mulai dengan mengakui perasaan anak dulu>"
+        "suggested_approach": "<1 kalimat, disampaikan ke kamu (anak): gambaran apa yang mungkin orang tuamu coba lakukan/ubah minggu depan soal pola ini — bukan instruksi langsung ke orang tua>"
       }
     ],
     "relationship_signal": {
@@ -388,12 +412,13 @@ Buat ringkasan terstruktur sebagai JSON saja, persis bentuk ini:
       "child": "<gunakan nilai yang diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>",
       "parent": "<gunakan nilai yang diberikan di atas apa adanya — JANGAN dihitung ulang sendiri>"
     },
-    "key_insight": "<1 kalimat pendek yang menghubungkan perspektif orang tua dan anak sebagai kemungkinan, bukan fakta>"
+    "key_insight": "<1 kalimat pendek yang menghubungkan perspektif orang tuamu dan kamu sebagai kemungkinan, bukan fakta>"
   }
 }
 
 Aturan:
 - Maksimal 3 "patterns" — kalau data cuma cukup mendukung 1-2 pola yang solid, kirim 1-2 aja. Jangan dipaksakan sampai 3.
+- Setiap "topic" di antara patterns HARUS berbeda satu sama lain. Kalau ada beberapa observasi yang sama-sama masuk kategori "topic" yang sama, GABUNGKAN jadi satu pattern saja (satu "observation" yang merangkum semuanya, satu "suggested_approach") — jangan kirim 2 pattern terpisah dengan "topic" yang sama.
 - Kalau ada jurnal terpandu [spesifik], jadikan itu dasar utama pattern/suggested_approach — datanya paling detail dibanding catatan lain.
 - Fokus pada pola lintas beberapa catatan, bukan satu kejadian tunggal.
 - Perlakukan catatan emosi sebagai sinyal, bukan kebenaran objektif.
@@ -402,8 +427,7 @@ Aturan:
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
 - ${AUTONOMY_SUPPORTIVE_RULE_ID}
 - ${DATA_NOT_JUDGMENT_RULE_ID}
-- ${personalityRuleId(name)} (berlaku untuk summary dan key_insight)
-- ${QUOTE_RULE_ID}
+- Sapa ${name} sebagai "kamu" di headline/summary/patterns/key_insight — JANGAN sebut namanya, JANGAN bicara TENTANG dia ke pihak ketiga (beda dari prompt lain yang bicara ke orang tua TENTANG anak — di sini kamu bicara LANGSUNG ke anaknya).
 - Pertimbangkan perspektif anak maupun orang tua.
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
 }
