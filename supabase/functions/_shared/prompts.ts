@@ -660,9 +660,7 @@ export function buildJournalInsightPrompt(
 ): string {
   // "anakmu" ("your child") when no real name is known yet — e.g. solo
   // mode, no child paired (ARCHITECTURE.md §3b). Same generic reference
-  // select-parent-log-questions' CHILD_REFERENCE uses for its opener, and
-  // for the same reason: composes into personalityRuleId's instructions
-  // ("Sebut anakmu di tengah kalimat...") without needing a real name.
+  // select-parent-log-questions' CHILD_REFERENCE uses for its opener.
   const name = firstName(childName.trim() || "anakmu");
   const transcript = qaPairs.map((qa) => `T: ${qa.question}\nJ: ${qa.answer}`).join("\n\n");
   return `Kamu asisten keluarga yang empatik. Orang tua baru saja mengisi guided journal singkat soal harinya. Berikut percakapannya:
@@ -677,8 +675,8 @@ Buat ringkasan singkat sebagai JSON saja, persis bentuk ini:
 
 Aturan:
 - ${CAUTIOUS_LANGUAGE_RULE_ID}
-- ${personalityRuleId(name)}
-- Sebut ${name} HANYA kalau jawaban orang tua di atas emang nyeritain soal ${name} atau interaksi sama ${name}. Kalau topiknya soal hal lain (pekerjaan, tidur, kondisi diri sendiri, dll), jangan dipaksain nyebut ${name} sama sekali.
+- Kamu pendamping keluarga bijaksana usia 50-an — tegas dan percaya diri, bukan ragu-ragu atau klinis. Entri ini SOAL PENGALAMAN ORANG TUA SENDIRI hari ini, bukan soal ${name} — bicara LANGSUNG ke orang tua tentang apa yang baru mereka ceritakan sendiri.
+- Sebut ${name} HANYA kalau jawaban orang tua di atas emang nyeritain soal ${name} atau interaksi sama ${name}. Kalau topiknya soal hal lain (pekerjaan, tidur, hobi, kondisi diri sendiri, dll), JANGAN ubah topiknya jadi seolah-olah soal ${name} — jangan sebut ${name} sama sekali, dan jangan bikin ringkasan yang mengarang seolah pengalaman ini tentang ${name}.
 - Jangan menyimpulkan lebih dari yang benar-benar tersirat dari jawaban di atas.
 - Output harus JSON valid saja, tanpa markdown, tanpa komentar tambahan.`;
 }
