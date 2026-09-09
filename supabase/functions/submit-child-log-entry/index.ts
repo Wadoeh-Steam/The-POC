@@ -46,10 +46,18 @@ Deno.serve(async (req: Request) => {
   }
 
   // Belt-and-suspenders on top of RLS (same pattern as submit-parent-log-entry):
-  // clear 403/consent_required instead of RLS silently returning nothing.
+  // clear 403 instead of RLS silently returning nothing.
+  //
+  // No longer checking child_consent_at here: the consent screen that was
+  // meant to set it (ConsentGateView) was disabled client-side in
+  // ios-client@b8a35ff (ChildRootView routes straight past it now), so no
+  // reachable code path could ever set child_consent_at — this check and
+  // the matching emotion_logs_insert_child RLS clause (dropped in
+  // 20260909000003) were permanently blocking every child account created
+  // since. Re-add both together if the consent screen ever comes back.
   const { data: callerProfile } = await supabase
     .from("profiles")
-    .select("role, family_id, child_consent_at")
+    .select("role, family_id")
     .eq("id", user.id)
     .single();
 
@@ -59,9 +67,6 @@ Deno.serve(async (req: Request) => {
     callerProfile.family_id.toLowerCase() !== body.family_id.toLowerCase()
   ) {
     return jsonResponse({ error: "forbidden" }, 403);
-  }
-  if (!callerProfile.child_consent_at) {
-    return jsonResponse({ error: "consent_required" }, 403);
   }
 
   const { data: entry, error: entryError } = await supabase
